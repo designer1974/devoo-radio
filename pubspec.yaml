@@ -1,0 +1,25 @@
+name: devoo_radio
+description: Devoo Radio - radio di tutto il mondo su una mappa.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_map: ^8.1.0
+  latlong2: ^0.9.1
+  just_audio: ^0.10.0
+  just_audio_background: any
+  http: ^1.2.0
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

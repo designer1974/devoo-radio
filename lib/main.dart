@@ -1,0 +1,116 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
+
+import 'favorites_page.dart';
+import 'map_page.dart';
+import 'player.dart';
+import 'search_page.dart';
+import 'store.dart';
+import 'widgets.dart';
+
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    // Un errore in un widget non deve mai chiudere l'app
+    FlutterError.onError = (d) => FlutterError.presentError(d);
+    ErrorWidget.builder = (_) => const SizedBox.shrink();
+    try {
+      await JustAudioBackground.init(
+        androidNotificationChannelId: 'com.designer1974.devoo_radio.audio',
+        androidNotificationChannelName: 'Devoo Radio',
+        androidNotificationOngoing: true,
+      );
+    } catch (e) {
+      debugPrint('Audio in background non disponibile: $e');
+    }
+    await Library.i.init();
+    runApp(const DevooRadioApp());
+    unawaited(StationStore.i.init());
+  }, (error, stack) => debugPrint('Errore non gestito: $error'));
+}
+
+class DevooRadioApp extends StatelessWidget {
+  const DevooRadioApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: Brightness.dark,
+      surface: const Color(0xFF10151B),
+    );
+    return MaterialApp(
+      title: 'Devoo Radio',
+      debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.dark,
+      darkTheme: ThemeData(
+        colorScheme: scheme,
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF0B0F14),
+      ),
+      theme: ThemeData(colorScheme: scheme, useMaterial3: true),
+      home: const HomeShell(),
+    );
+  }
+}
+
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key});
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  StreamSubscription<String>? _errors;
+
+  @override
+  void initState() {
+    super.initState();
+    _errors = RadioPlayer.i.errors.listen((msg) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+    });
+  }
+
+  @override
+  void dispose() {
+    _errors?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: tabIndex,
+      builder: (context, tab, _) => Scaffold(
+        body: IndexedStack(
+          index: tab,
+          children: const [MapPage(), SearchPage(), FavoritesPage()],
+        ),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const MiniPlayer(),
+            NavigationBar(
+              selectedIndex: tab,
+              onDestinationSelected: (i) => tabIndex.value = i,
+              destinations: const [
+                NavigationDestination(
+                    icon: Icon(Icons.public_outlined), selectedIcon: Icon(Icons.public), label: 'Mappa'),
+                NavigationDestination(icon: Icon(Icons.search), label: 'Cerca'),
+                NavigationDestination(
+                    icon: Icon(Icons.favorite_border),
+                    selectedIcon: Icon(Icons.favorite),
+                    label: 'Preferiti'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
