@@ -51,7 +51,7 @@ jobs:
         continue-on-error: true
         run: |
           {
-          for h in de1 de2 fi1 nl1 at1 all; do
+          for h in de1 de2 all; do
             curl -s --compressed -m 60 -A DevooRadio/1.0 -o r.json -w "$h %{http_code} %{size_download}B %{time_total}s  " "https://$h.api.radio-browser.info/json/stations/search?has_geo_info=true&hidebroken=true&order=clickcount&reverse=true&limit=1000" || true
             python3 -c "import json;d=json.load(open('r.json'));print(len(d),'stazioni, con posizione:',sum(1 for x in d if x.get('geo_lat')))" 2>/dev/null || echo "-"
           done
