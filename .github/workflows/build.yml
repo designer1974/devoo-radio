@@ -46,6 +46,21 @@ jobs:
           report() { msg=$(grep -E "$2" "$1" | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}'); [ -z "$msg" ] && msg=$(tail -40 "$1" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}'); echo "::error title=$3::$msg"; }
           flutter test > out.txt 2>&1 || { report out.txt "Expected|Actual|Error|error|FAILED|\\.dart:[0-9]+" Test; exit 1; }
 
+      # Solo informazione: i server delle radio e delle mappe rispondono?
+      - name: Controllo server
+        continue-on-error: true
+        run: |
+          for h in de1 de2 fi1 nl1 at1 all; do
+            curl -s --compressed -m 60 -A DevooRadio/1.0 -o r.json -w "$h %{http_code} %{size_download}B %{time_total}s  " "https://$h.api.radio-browser.info/json/stations/search?has_geo_info=true&hidebroken=true&order=clickcount&reverse=true&limit=1000" || true
+            python3 -c "import json;d=json.load(open('r.json'));print(len(d),'stazioni, con posizione:',sum(1 for x in d if x.get('geo_lat')))" 2>/dev/null || echo "-"
+          done
+          curl -s -m 30 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/stations/search?countrycode=MA&hidebroken=true&limit=500" | python3 -c "import json,sys;d=json.load(sys.stdin);print('Marocco:',len(d))" || true
+          curl -s -m 30 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/stations/search?state=Rabat&hidebroken=true" | python3 -c "import json,sys;d=json.load(sys.stdin);print('Rabat:',[x['name'] for x in d][:10])" || true
+          curl -s -m 30 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/countries?hidebroken=true" | python3 -c "import json,sys;d=json.load(sys.stdin);print('Paesi:',len(d), d[:2])" || true
+          for u in World_Imagery/MapServer/tile/3/3/4 Reference/World_Boundaries_and_Places/MapServer/tile/3/3/4 Canvas/World_Dark_Gray_Base/MapServer/tile/3/3/4 Canvas/World_Dark_Gray_Reference/MapServer/tile/3/3/4; do
+            echo "$u $(curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}' -m 30 https://server.arcgisonline.com/ArcGIS/rest/services/$u)"
+          done
+
       # Firma sempre uguale: ogni nuova versione si installa SOPRA la vecchia
       - name: Chiave di firma fissa
         run: |

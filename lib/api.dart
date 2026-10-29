@@ -65,18 +65,50 @@ class RadioApi {
     return compute(parseStations, body);
   }
 
-  /// Ricerca per nome, genere o paese (anche radio senza posizione).
-  Future<List<Station>> search({String name = '', String tag = '', String country = ''}) async {
+  /// Ricerca per nome, città/regione, genere o codice paese (anche radio senza posizione).
+  Future<List<Station>> search(
+      {String name = '', String state = '', String tag = '', String countryCode = '', int limit = 100}) async {
     final body = await _get('/json/stations/search', {
       if (name.isNotEmpty) 'name': name,
+      if (state.isNotEmpty) 'state': state,
       if (tag.isNotEmpty) 'tag': tag,
-      if (country.isNotEmpty) 'country': country,
+      if (countryCode.isNotEmpty) 'countrycode': countryCode,
       'hidebroken': 'true',
       'order': 'clickcount',
       'reverse': 'true',
-      'limit': '100',
+      'limit': '$limit',
     });
     return (await compute(parseStations, body)).$1;
+  }
+
+  /// Nome o città: due ricerche insieme, risultati uniti senza doppioni.
+  Future<List<Station>> searchAll(String q) async {
+    final results = await Future.wait([
+      search(name: q),
+      search(state: q).catchError((Object _) => <Station>[]),
+    ]);
+    final seen = <String>{};
+    return [for (final l in results) for (final s in l) if (seen.add(s.id)) s];
+  }
+
+  /// Tutti i paesi con il numero di radio.
+  Future<List<Country>> countries() async {
+    final body = await _get('/json/countries', {'hidebroken': 'true'});
+    final data = jsonDecode(body);
+    if (data is! List) return [];
+    final byCode = <String, Country>{};
+    for (final j in data) {
+      if (j is! Map) continue;
+      final code = (j['iso_3166_1'] ?? '').toString().trim().toUpperCase();
+      final name = (j['name'] ?? '').toString().trim();
+      final n = int.tryParse('${j['stationcount']}') ?? 0;
+      if (code.length != 2 || name.isEmpty || n <= 0) continue;
+      final old = byCode[code];
+      byCode[code] = Country(code, old == null || old.name.length < name.length ? name : old.name,
+          (old?.count ?? 0) + n);
+    }
+    final list = byCode.values.toList()..sort((a, b) => a.displayName.compareTo(b.displayName));
+    return list;
   }
 
   /// Segnala l'ascolto a Radio Browser (aiuta la classifica). Non blocca mai.

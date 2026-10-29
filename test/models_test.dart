@@ -63,4 +63,14 @@ void main() {
     expect(nearestPlace(places, 33.6, -7.6, 5)!.countryCode, 'MA');
     expect(normalizeLng(190), closeTo(-170, 1e-9));
   });
+
+  test('paesi in italiano', () {
+    const ma = Country('MA', 'Morocco', 120);
+    expect(ma.displayName, 'Marocco');
+    expect(ma.matches('maroc'), true);
+    expect(ma.matches('Morocco'), true);
+    expect(ma.matches('ma'), true);
+    expect(ma.matches('italia'), false);
+    expect(ma.flag, '🇲🇦');
+  });
 }

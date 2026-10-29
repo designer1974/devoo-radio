@@ -41,9 +41,9 @@ class _MapPageState extends State<MapPage> {
         CircleMarker(
           point: LatLng(p.lat, p.lng),
           radius: 2.6 + math.min(5.0, math.log(p.stations.length) * 1.1),
-          color: accent.withValues(alpha: 0.85),
-          borderColor: Colors.black54,
-          borderStrokeWidth: 0.6,
+          color: accent.withValues(alpha: 0.9),
+          borderColor: Colors.black87,
+          borderStrokeWidth: 1,
         ),
     ];
     return _dots;
@@ -98,7 +98,7 @@ class _MapPageState extends State<MapPage> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ListenableBuilder(
-      listenable: StationStore.i,
+      listenable: Listenable.merge([StationStore.i, Library.i]),
       builder: (context, _) {
         final store = StationStore.i;
         final dots = _buildDots(store.places);
@@ -119,12 +119,7 @@ class _MapPageState extends State<MapPage> {
                 onTap: (_, pos) => _onTap(pos),
               ),
               children: [
-                TileLayer(
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                  subdomains: const ['a', 'b', 'c', 'd'],
-                  userAgentPackageName: 'com.designer1974.devoo_radio',
-                  maxNativeZoom: 18,
-                ),
+                ..._tiles(Library.i.mapStyle),
                 CircleLayer(circles: dots),
                 if (sel != null)
                   CircleLayer(circles: [
@@ -164,9 +159,9 @@ class _MapPageState extends State<MapPage> {
                                   Text(
                                     store.stations.isEmpty
                                         ? (store.loading
-                                            ? 'Scarico le radio del mondo…'
+                                            ? 'Scarico le radio del mondo… ${(store.progress * 100).round()}%'
                                             : 'Tocca un puntino verde')
-                                        : '${_fmt(store.stations.length)} radio · ${_fmt(store.places.length)} città',
+                                        : '${_fmt(store.stations.length)} radio · ${_fmt(store.places.length)} città${store.loading ? ' · scarico…' : ''}',
                                     style: TextStyle(
                                         fontSize: 12, color: scheme.onSurfaceVariant),
                                   ),
@@ -210,6 +205,16 @@ class _MapPageState extends State<MapPage> {
             ),
             Positioned(
               right: 14,
+              bottom: 100,
+              child: FloatingActionButton.small(
+                heroTag: 'style',
+                tooltip: 'Cambia mappa',
+                onPressed: () => Library.i.mapStyle = Library.i.mapStyle == 0 ? 1 : 0,
+                child: Icon(Library.i.mapStyle == 0 ? Icons.dark_mode : Icons.satellite_alt),
+              ),
+            ),
+            Positioned(
+              right: 14,
               bottom: 30,
               child: FloatingActionButton.extended(
                 heroTag: 'surprise',
@@ -223,7 +228,7 @@ class _MapPageState extends State<MapPage> {
             Positioned(
               left: 8,
               bottom: 4,
-              child: Text('© OpenStreetMap · © CARTO · radio-browser.info',
+              child: Text('Mappa © Esri, Maxar, Earthstar Geographics · radio-browser.info',
                   style: TextStyle(fontSize: 9, color: Colors.white.withValues(alpha: 0.5))),
             ),
           ],
@@ -231,6 +236,39 @@ class _MapPageState extends State<MapPage> {
       },
     );
   }
+}
+
+const _esri = 'https://server.arcgisonline.com/ArcGIS/rest/services';
+
+/// Satellite (tipo Google Earth) con confini e nomi, oppure mappa scura. Gratis, senza chiave.
+List<Widget> _tiles(int style) {
+  const ua = 'com.designer1974.devoo_radio';
+  if (style == 1) {
+    return [
+      TileLayer(
+        urlTemplate: '$_esri/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        userAgentPackageName: ua,
+        maxNativeZoom: 16,
+      ),
+      TileLayer(
+        urlTemplate: '$_esri/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+        userAgentPackageName: ua,
+        maxNativeZoom: 16,
+      ),
+    ];
+  }
+  return [
+    TileLayer(
+      urlTemplate: '$_esri/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      userAgentPackageName: ua,
+      maxNativeZoom: 18,
+    ),
+    TileLayer(
+      urlTemplate: '$_esri/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      userAgentPackageName: ua,
+      maxNativeZoom: 18,
+    ),
+  ];
 }
 
 String _fmt(int n) {

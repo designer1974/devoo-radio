@@ -64,15 +64,18 @@ class StationStore extends ChangeNotifier {
     final all = <Station>[];
     final seen = <String>{};
     try {
-      for (var offset = 0; offset < _maxStations; offset += _pageSize) {
-        final (page, raw) = await RadioApi.i.geoPage(offset, _pageSize);
+      var offset = 0;
+      while (offset < _maxStations) {
+        final size = offset == 0 ? 1000 : _pageSize; // la prima pagina piccola: puntini subito
+        final (page, raw) = await RadioApi.i.geoPage(offset, size);
+        offset += size;
         for (final s in page) {
           if (seen.add(s.id)) all.add(s);
         }
-        progress = (offset + _pageSize) / _maxStations;
+        progress = offset / _maxStations;
         if (firstTime) _set(all); // i puntini compaiono mentre scarica
         notifyListeners();
-        if (raw < _pageSize) break; // finite
+        if (raw < size) break; // finite
       }
     } catch (e) {
       if (stations.isEmpty && all.isEmpty) {
@@ -144,6 +147,13 @@ class Library extends ChangeNotifier {
     try {
       _prefs?.setString(key, jsonEncode(list.map((s) => s.toCompact()).toList()));
     } catch (_) {}
+  }
+
+  /// 0 = satellite (tipo Google Earth), 1 = scura
+  int get mapStyle => _prefs?.getInt('map_style') ?? 0;
+  set mapStyle(int v) {
+    _prefs?.setInt('map_style', v);
+    notifyListeners();
   }
 
   bool isFavorite(Station s) => favorites.any((f) => f.id == s.id);

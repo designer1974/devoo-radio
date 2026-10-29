@@ -211,3 +211,47 @@ Place? nearestPlace(List<Place> places, double lat, double lng, double zoom, {do
   }
   return best;
 }
+
+/// Nomi italiani dei paesi più cercati (il server li ha in inglese).
+const italianCountryNames = {
+  'MA': 'Marocco', 'DZ': 'Algeria', 'TN': 'Tunisia', 'LY': 'Libia', 'EG': 'Egitto',
+  'SA': 'Arabia Saudita', 'AE': 'Emirati Arabi Uniti', 'QA': 'Qatar', 'KW': 'Kuwait',
+  'BH': 'Bahrein', 'OM': 'Oman', 'YE': 'Yemen', 'JO': 'Giordania', 'LB': 'Libano',
+  'SY': 'Siria', 'IQ': 'Iraq', 'PS': 'Palestina', 'IL': 'Israele', 'TR': 'Turchia',
+  'IR': 'Iran', 'SD': 'Sudan', 'MR': 'Mauritania', 'SN': 'Senegal', 'ML': 'Mali',
+  'NG': 'Nigeria', 'GH': 'Ghana', 'CI': "Costa d'Avorio", 'CM': 'Camerun', 'KE': 'Kenya',
+  'ET': 'Etiopia', 'ZA': 'Sudafrica', 'IT': 'Italia', 'FR': 'Francia', 'ES': 'Spagna',
+  'PT': 'Portogallo', 'DE': 'Germania', 'AT': 'Austria', 'CH': 'Svizzera', 'BE': 'Belgio',
+  'NL': 'Paesi Bassi', 'LU': 'Lussemburgo', 'GB': 'Regno Unito', 'IE': 'Irlanda',
+  'DK': 'Danimarca', 'NO': 'Norvegia', 'SE': 'Svezia', 'FI': 'Finlandia', 'IS': 'Islanda',
+  'PL': 'Polonia', 'CZ': 'Repubblica Ceca', 'SK': 'Slovacchia', 'HU': 'Ungheria',
+  'RO': 'Romania', 'BG': 'Bulgaria', 'GR': 'Grecia', 'AL': 'Albania', 'RS': 'Serbia',
+  'HR': 'Croazia', 'SI': 'Slovenia', 'BA': 'Bosnia ed Erzegovina', 'MK': 'Macedonia del Nord',
+  'ME': 'Montenegro', 'UA': 'Ucraina', 'RU': 'Russia', 'BY': 'Bielorussia', 'MD': 'Moldavia',
+  'LT': 'Lituania', 'LV': 'Lettonia', 'EE': 'Estonia', 'US': 'Stati Uniti', 'CA': 'Canada',
+  'MX': 'Messico', 'BR': 'Brasile', 'AR': 'Argentina', 'CL': 'Cile', 'CO': 'Colombia',
+  'PE': 'Perù', 'VE': 'Venezuela', 'CU': 'Cuba', 'DO': 'Repubblica Dominicana',
+  'CN': 'Cina', 'JP': 'Giappone', 'KR': 'Corea del Sud', 'IN': 'India', 'PK': 'Pakistan',
+  'BD': 'Bangladesh', 'ID': 'Indonesia', 'MY': 'Malesia', 'PH': 'Filippine',
+  'TH': 'Thailandia', 'VN': 'Vietnam', 'AF': 'Afghanistan', 'AU': 'Australia',
+  'NZ': 'Nuova Zelanda', 'VA': 'Città del Vaticano', 'SM': 'San Marino', 'MT': 'Malta',
+  'CY': 'Cipro', 'MC': 'Monaco',
+};
+
+class Country {
+  final String code;
+  final String name; // inglese, come sul server
+  final int count;
+  const Country(this.code, this.name, this.count);
+
+  String get flag => flagEmoji(code);
+  String get displayName => italianCountryNames[code] ?? name;
+
+  bool matches(String q) {
+    final t = q.trim().toLowerCase();
+    if (t.isEmpty) return true;
+    return displayName.toLowerCase().contains(t) ||
+        name.toLowerCase().contains(t) ||
+        code.toLowerCase() == t;
+  }
+}
