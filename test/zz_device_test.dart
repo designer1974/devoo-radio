@@ -1,0 +1,78 @@
+// Solo sul ramo "diag": avvia l'app vera su un emulatore Android e riporta il motivo se si chiude.
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+const _script = r'''
+set -x
+SDK=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
+export ANDROID_SDK_ROOT=$SDK
+SM=$SDK/cmdline-tools/latest/bin/sdkmanager
+AM=$SDK/cmdline-tools/latest/bin/avdmanager
+ADB=$SDK/platform-tools/adb
+IMG="system-images;android-30;google_apis;x86_64"
+sudo chmod 666 /dev/kvm || true
+ls -la /dev/kvm || true
+curl -sL -o pro.apk https://github.com/designer1974/devoo-radio/releases/download/pro-build-20/DevooRadioPro.apk
+curl -sL -o free.apk https://github.com/designer1974/devoo-radio/releases/download/build-18/DevooRadio.apk
+ls -la *.apk
+yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
+tail -3 sdk.log
+echo no | $AM create avd -n t -k "$IMG" --force
+$SDK/emulator/emulator -avd t -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -memory 3072 > emu.log 2>&1 &
+$ADB wait-for-device
+for i in $(seq 1 120); do [ "$($ADB shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break; sleep 5; done
+echo BOOTED
+sleep 10
+for p in pro:com.designer1974.devoo_radio.pro free:com.designer1974.devoo_radio; do
+  f=${p%%:*}; pkg=${p#*:}
+  $ADB install -r $f.apk
+  $ADB logcat -c
+  $ADB shell monkey -p $pkg -c android.intent.category.LAUNCHER 1
+  sleep 30
+  pid=$($ADB shell pidof $pkg | tr -d '\r')
+  echo "RESULT $f pid=[$pid]" | tee -a result.txt
+  $ADB logcat -d > logcat_$f.txt
+  $ADB shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -3 | sed "s/^/RESULT $f /" | tee -a result.txt
+done
+''';
+
+void main() {
+  test('app sul telefono', () async {
+    if (Platform.environment['GITHUB_REF_NAME'] != 'diag') return;
+    final dir = Directory.systemTemp.createTempSync('dev');
+    File('${dir.path}/run.sh').writeAsStringSync(_script);
+    final r = await Process.run('bash', ['run.sh'], workingDirectory: dir.path);
+    final out = <String>[];
+    final res = File('${dir.path}/result.txt');
+    if (res.existsSync()) out.addAll(res.readAsLinesSync());
+    for (final f in ['pro', 'free']) {
+      final lc = File('${dir.path}/logcat_$f.txt');
+      if (!lc.existsSync()) {
+        out.add('$f: nessun logcat');
+        continue;
+      }
+      final lines = lc.readAsLinesSync();
+      final keep = lines
+          .where((l) =>
+              l.contains('AndroidRuntime') ||
+              l.contains('FATAL') ||
+              l.contains(' E flutter') ||
+              l.contains('F DEBUG') ||
+              l.contains('F libc') ||
+              (l.contains(' E ') && l.toLowerCase().contains('devoo')))
+          .take(16);
+      out.add('--- $f ---');
+      out.addAll(keep);
+    }
+    if (out.length < 4) {
+      final s = '${r.stdout}\n${r.stderr}'.split('\n');
+      out.addAll(s.skip(s.length > 30 ? s.length - 30 : 0));
+    }
+    for (final l in out.take(38)) {
+      // ignore: avoid_print
+      print('error ${l.length > 300 ? l.substring(0, 300) : l}');
+    }
+    fail('diagnosi');
+  }, timeout: const Timeout(Duration(minutes: 45)));
+}
