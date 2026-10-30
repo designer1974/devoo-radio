@@ -6,8 +6,15 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'favorites_page.dart';
 import 'map_page.dart';
 import 'player.dart';
+import 'recorder.dart';
+import 'recording.dart';
+import 'recordings_page.dart';
+import 'schedule.dart';
 import 'search_page.dart';
+import 'ads.dart';
+import 'pro.dart';
 import 'store.dart';
+import 'update.dart';
 import 'widgets.dart';
 
 void main() {
@@ -25,9 +32,13 @@ void main() {
     } catch (e) {
       debugPrint('Audio in background non disponibile: $e');
     }
+    await Pro.i.init();
     await Library.i.init();
+    await RecSettings.i.load();
     runApp(const DevooRadioApp());
     unawaited(StationStore.i.init());
+    unawaited(initAds());
+    unawaited(RecController.i.recoverInterrupted());
   }, (error, stack) => debugPrint('Errore non gestito: $error'));
 }
 
@@ -42,13 +53,14 @@ class DevooRadioApp extends StatelessWidget {
       surface: const Color(0xFF10151B),
     );
     return MaterialApp(
-      title: 'Devoo Radio',
+      title: Pro.i.appName,
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         colorScheme: scheme,
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFF0B0F14),
+        focusColor: accent.withValues(alpha: 0.28), // si vede bene col telecomando della TV
       ),
       theme: ThemeData(colorScheme: scheme, useMaterial3: true),
       home: const HomeShell(),
@@ -64,10 +76,22 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   StreamSubscription<String>? _errors;
+  StreamSubscription<String>? _recMsgs;
+  // tornando nell'app: aggiorna registrazioni e programmi (possono essere finiti ad app chiusa)
+  late final AppLifecycleListener _life = AppLifecycleListener(onResume: () {
+    Recordings.i.reload();
+    Schedules.i.reload();
+  });
 
   @override
   void initState() {
     super.initState();
+    _recMsgs = RecController.i.messages.listen(_snack);
+    _life.hashCode; // avvia l'ascolto
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      if (mounted && Pro.i.isProPackage) checkForUpdate(context); // solo la versione GitHub
+    });
+    Schedules.i.reload();
     _errors = RadioPlayer.i.errors.listen((msg) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -76,8 +100,17 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+  }
+
   @override
   void dispose() {
+    _life.dispose();
+    _recMsgs?.cancel();
     _errors?.cancel();
     super.dispose();
   }
@@ -89,11 +122,13 @@ class _HomeShellState extends State<HomeShell> {
       builder: (context, tab, _) => Scaffold(
         body: IndexedStack(
           index: tab,
-          children: const [MapPage(), SearchPage(), FavoritesPage()],
+          children: const [MapPage(), SearchPage(), FavoritesPage(), RecordingsPage()],
         ),
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const AdBanner(),
+            const RecBanner(),
             const MiniPlayer(),
             NavigationBar(
               selectedIndex: tab,
@@ -106,6 +141,8 @@ class _HomeShellState extends State<HomeShell> {
                     icon: Icon(Icons.favorite_border),
                     selectedIcon: Icon(Icons.favorite),
                     label: 'Preferiti'),
+                NavigationDestination(
+                    icon: Icon(Icons.mic_none), selectedIcon: Icon(Icons.mic), label: 'Registrate'),
               ],
             ),
           ],

@@ -1,7 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import 'ads.dart';
 import 'models.dart';
 import 'player.dart';
+import 'recording.dart';
+import 'schedule.dart';
+import 'striped.dart';
 import 'store.dart';
 
 /// Navigazione condivisa: scheda attiva e stazione da mostrare sulla mappa.
@@ -101,7 +107,7 @@ class StationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([RadioPlayer.i, Library.i]),
+      listenable: Listenable.merge([RadioPlayer.i, Library.i, RecController.i]),
       builder: (context, _) {
         final p = RadioPlayer.i;
         final active = p.isCurrent(station);
@@ -118,7 +124,16 @@ class StationTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontWeight: FontWeight.w600, color: active ? accent : null)),
-          subtitle: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: RecController.i.isRecording(station)
+              ? Text(
+                  RecController.i.anySaving
+                      ? 'Salvataggio…'
+                      : '● REC ${fmtDur(RecController.i.elapsed)} · ${fmtSize(RecController.i.recBytes)}',
+                  maxLines: 1,
+                  style: const TextStyle(color: recRed, fontWeight: FontWeight.w700))
+              : (RecController.i.isPending(station)
+                  ? const Text('Avvio registrazione…', style: TextStyle(color: recRed))
+                  : Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis)),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -127,15 +142,39 @@ class StationTile extends StatelessWidget {
                     width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               else if (active && p.isPlaying)
                 const LiveBars(),
+              _TileRec(station),
               IconButton(
                 tooltip: fav ? 'Togli dai preferiti' : 'Aggiungi ai preferiti',
                 icon: Icon(fav ? Icons.favorite : Icons.favorite_border,
                     color: fav ? Colors.pinkAccent : null),
                 onPressed: () => Library.i.toggleFavorite(station),
               ),
+              SizedBox(
+                width: 28,
+                child: PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  tooltip: 'Altro',
+                  onSelected: (v) {
+                    if (v == 'sched') openScheduleEditor(context, station: station);
+                    if (v == 'map') showOnMap(context, station);
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'sched',
+                        child: ListTile(
+                            leading: Icon(Icons.alarm_add, color: recRed),
+                            title: Text('Programma registrazione'))),
+                    if (station.hasGeo)
+                      const PopupMenuItem(
+                          value: 'map',
+                          child: ListTile(leading: Icon(Icons.public), title: Text('Mostra sulla mappa'))),
+                  ],
+                ),
+              ),
             ],
           ),
           onTap: () => active && p.isPlaying ? openPlayer(context) : p.play(station),
+          onLongPress: () => openScheduleEditor(context, station: station),
         );
       },
     );
@@ -144,7 +183,11 @@ class StationTile extends StatelessWidget {
 
 /// Elenco di stazioni in un foglio che sale dal basso.
 Future<void> showStationsSheet(BuildContext context,
-    {required String title, required String subtitle, required List<Station> stations}) {
+    {required String title,
+    required String subtitle,
+    required List<Station> stations,
+    void Function(BuildContext)? action,
+    String actionLabel = ''}) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -162,6 +205,18 @@ Future<void> showStationsSheet(BuildContext context,
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             subtitle: Text(subtitle),
           ),
+          if (action != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Icons.flag),
+                  label: Text(actionLabel),
+                  onPressed: () => action(context),
+                ),
+              ),
+            ),
           const Divider(height: 1),
           Expanded(
             child: ListView.builder(
@@ -192,7 +247,7 @@ class MiniPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: RadioPlayer.i,
+      listenable: Listenable.merge([RadioPlayer.i, RecController.i]),
       builder: (context, _) {
         final p = RadioPlayer.i;
         final s = p.current;
@@ -217,6 +272,15 @@ class MiniPlayer extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w700)),
+                        if (RecController.i.isRecording(s))
+                          Text(
+                            RecController.i.anySaving
+                                ? 'Salvataggio…'
+                                : '● REC ${fmtDur(RecController.i.elapsed)} · ${fmtSize(RecController.i.recBytes)}',
+                            maxLines: 1,
+                            style: const TextStyle(color: recRed, fontWeight: FontWeight.w700, fontSize: 13),
+                          )
+                        else
                         Text(
                           p.isBuffering
                               ? 'Collegamento…'
@@ -229,6 +293,7 @@ class MiniPlayer extends StatelessWidget {
                     ),
                   ),
                   if (p.isPlaying && !p.isBuffering) const LiveBars(),
+                  const RecButton(),
                   IconButton(
                     iconSize: 34,
                     icon: p.isBuffering
@@ -256,7 +321,7 @@ class PlayerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([RadioPlayer.i, Library.i]),
+      listenable: Listenable.merge([RadioPlayer.i, Library.i, RecController.i]),
       builder: (context, _) {
         final p = RadioPlayer.i;
         final s = p.current;
@@ -354,6 +419,8 @@ class PlayerSheet extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 14),
+              const BigRecButton(),
               if (sleep != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -362,18 +429,245 @@ class PlayerSheet extends StatelessWidget {
                     style: const TextStyle(color: accent),
                   ),
                 ),
-              if (s.hasGeo) ...[
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  icon: const Icon(Icons.public),
-                  label: const Text('Mostra sulla mappa'),
-                  onPressed: () => showOnMap(context, s),
-                ),
-              ],
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.center,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.alarm_add),
+                    label: const Text('Programma'),
+                    onPressed: () {
+                      final nav = Navigator.of(context);
+                      final root = nav.context;
+                      nav.pop();
+                      openScheduleEditor(root, station: s);
+                    },
+                  ),
+                  if (s.hasGeo)
+                    TextButton.icon(
+                      icon: const Icon(Icons.public),
+                      label: const Text('Mostra sulla mappa'),
+                      onPressed: () => showOnMap(context, s),
+                    ),
+                ],
+              ),
             ],
           ),
         );
       },
     );
   }
+}
+
+
+const recRed = Color(0xFFFF4D4D);
+
+/// Pulsante rotondo ● nel mini player: avvia / ferma la registrazione.
+class RecButton extends StatelessWidget {
+  const RecButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: Listenable.merge([RecController.i, RadioPlayer.i]), builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
+    final rec = RecController.i;
+    final p = RadioPlayer.i;
+    if (rec.anySaving) {
+      return const Padding(
+        padding: EdgeInsets.all(10),
+        child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: recRed)),
+      );
+    }
+    return IconButton(
+      tooltip: rec.anyRecording ? 'Ferma e salva' : 'Registra',
+      iconSize: 30,
+      icon: Icon(rec.anyRecording ? Icons.stop_circle_outlined : Icons.fiber_manual_record,
+          color: recRed),
+      onPressed: rec.anyRecording
+          ? rec.stopAny
+          : (p.isPlaying && !p.isBuffering ? rec.start : null),
+    );
+  }
+}
+
+/// Pulsante grande nel lettore.
+class BigRecButton extends StatelessWidget {
+  const BigRecButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: Listenable.merge([RecController.i, RadioPlayer.i]), builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
+    final rec = RecController.i;
+    final p = RadioPlayer.i;
+    if (rec.busy) return const RecBanner();
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: recRed,
+          side: const BorderSide(color: recRed),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+        icon: const Icon(Icons.fiber_manual_record),
+        label: const Text('Registra questa radio', style: TextStyle(fontWeight: FontWeight.w700)),
+        onPressed: p.isPlaying && !p.isBuffering
+            ? rec.start
+            : (p.current != null ? () => rec.recordStation(p.current!) : null),
+      ),
+    );
+  }
+}
+
+/// Striscia rossa: REC, tempo, dimensione, Ferma.
+class RecBanner extends StatefulWidget {
+  const RecBanner({super.key});
+  @override
+  State<RecBanner> createState() => _RecBannerState();
+}
+
+class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMixin {
+  DateTime? _saveStart;
+  late final AnimationController _blink =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _blink.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: RecController.i,
+      builder: (context, _) {
+        final rec = RecController.i;
+        if (!rec.busy) {
+          _saveStart = null;
+          return const SizedBox.shrink();
+        }
+        final saving = rec.saving ?? (rec.extStopping || rec.extSaving ? 0.0 : null);
+        if (saving == null) _saveStart = null;
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: saving != null ? const EdgeInsets.fromLTRB(12, 7, 8, 7) : const EdgeInsets.fromLTRB(14, 8, 6, 8),
+          decoration: BoxDecoration(
+            color: recRed.withValues(alpha: 0.16),
+            border: Border.all(color: recRed.withValues(alpha: 0.6)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: saving != null
+              ? AnimatedBuilder(
+                  animation: _blink,
+                  builder: (_, __) {
+                    // il salvataggio dura pochi secondi: avanzamento stimato, 100% quando il file è pronto
+                    _saveStart ??= DateTime.now();
+                    final t = DateTime.now().difference(_saveStart!).inMilliseconds / 1000.0;
+                    final est = 0.96 * (1 - math.exp(-t / 2.2));
+                    final v = saving > 0 ? math.max(saving, est) : est;
+                    return Row(
+                      children: [
+                        const Icon(Icons.check_circle_outline, color: accent, size: 18),
+                        const SizedBox(width: 8),
+                        Text('Salvataggio ${(v * 100).round()}%',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 13, fontFeatures: [FontFeature.tabularFigures()])),
+                        const SizedBox(width: 12),
+                        Expanded(child: StripedBar(value: v, height: 5)),
+                        const SizedBox(width: 8),
+                      ],
+                    );
+                  },
+                )
+              : Row(
+                  children: [
+                    FadeTransition(
+                      opacity: _blink,
+                      child: const Icon(Icons.fiber_manual_record, color: recRed, size: 18),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('${rec.external ? '⏰ ' : ''}REC ${fmtDur(rec.elapsed)}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            fontFeatures: [FontFeature.tabularFigures()])),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        rec.external && rec.extEnd != null
+                            ? '${rec.recName} · fino alle ${two(rec.extEnd!.hour)}:${two(rec.extEnd!.minute)} · ${fmtSize(rec.recBytes)}'
+                            : '${fmtSize(rec.recBytes)} · ${rec.recName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
+                      ),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(foregroundColor: recRed),
+                      icon: const Icon(Icons.stop),
+                      label: const Text('Ferma e salva'),
+                      onPressed: rec.stopAny,
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+}
+
+
+/// ● accanto al ❤️: grigio = radio spenta, rosso = pronto, ■ = sta registrando.
+class _TileRec extends StatelessWidget {
+  const _TileRec(this.station);
+  final Station station;
+
+  @override
+  Widget build(BuildContext context) {
+    final rec = RecController.i;
+    final p = RadioPlayer.i;
+    if (rec.isRecording(station)) {
+      if (rec.anySaving) {
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: SizedBox(
+              width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: recRed)),
+        );
+      }
+      return IconButton(
+        tooltip: 'Ferma e salva',
+        icon: const Icon(Icons.stop_circle, color: recRed),
+        onPressed: rec.stopAny,
+      );
+    }
+    if (rec.isPending(station)) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(
+            width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: recRed)),
+      );
+    }
+    final ready = p.isCurrent(station) && p.isPlaying;
+    return IconButton(
+      tooltip: 'Registra',
+      icon: Icon(Icons.fiber_manual_record,
+          color: ready ? recRed : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+      onPressed: rec.busy ? null : () => rec.recordStation(station),
+    );
+  }
+}
+
+
+/// In basso in ogni pagina: striscia REC + mini player.
+class PlayerBar extends StatelessWidget {
+  const PlayerBar({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [AdBanner(), RecBanner(), MiniPlayer()],
+      );
 }

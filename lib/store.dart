@@ -15,8 +15,8 @@ class StationStore extends ChangeNotifier {
   StationStore._();
   static final i = StationStore._();
 
-  static const _pageSize = 5000;
-  static const _maxStations = 50000;
+  static const _pageSize = 3000;
+  static const _maxStations = 60000;
   static const _maxAge = Duration(days: 7);
 
   List<Station> stations = const [];
@@ -38,7 +38,8 @@ class StationStore extends ChangeNotifier {
         final list = await compute(_decode, await f.readAsString());
         if (list.isNotEmpty) {
           _set(list);
-          fresh = DateTime.now().difference(await f.lastModified()) < _maxAge;
+          final complete = await File('${f.path}.ok').exists();
+          fresh = complete && DateTime.now().difference(await f.lastModified()) < _maxAge;
         }
       }
     } catch (_) {
@@ -63,31 +64,52 @@ class StationStore extends ChangeNotifier {
     final firstTime = stations.isEmpty;
     final all = <Station>[];
     final seen = <String>{};
+    var complete = false;
     try {
       var offset = 0;
       while (offset < _maxStations) {
         final size = offset == 0 ? 1000 : _pageSize; // la prima pagina piccola: puntini subito
-        final (page, raw) = await RadioApi.i.geoPage(offset, size);
+        // ogni pagina si riprova 3 volte (rete lenta del telefono)
+        (List<Station>, int)? got;
+        for (var t = 0; t < 3 && got == null; t++) {
+          try {
+            got = await RadioApi.i.geoPage(offset, size);
+          } catch (_) {
+            if (t == 2) rethrow;
+            await Future<void>.delayed(Duration(seconds: 2 + t * 3));
+          }
+        }
+        final (page, raw) = got!;
         offset += size;
         for (final s in page) {
           if (seen.add(s.id)) all.add(s);
         }
         progress = offset / _maxStations;
-        if (firstTime) _set(all); // i puntini compaiono mentre scarica
+        if (firstTime || all.length > stations.length) _set(all); // i puntini compaiono mentre scarica
         notifyListeners();
-        if (raw < size) break; // finite
+        if (raw < size) {
+          complete = true; // finite
+          break;
+        }
       }
+      if (offset >= _maxStations) complete = true;
     } catch (e) {
       if (stations.isEmpty && all.isEmpty) {
         error = 'Nessuna connessione. Controlla internet e riprova.';
       }
     }
-    if (all.length >= 50 && all.length >= stations.length ~/ 2) {
+    if (all.length >= 50 && all.length >= stations.length) {
       _set(all);
       try {
         final f = await _file();
         final text = await compute(_encode, all);
         await f.writeAsString(text, flush: true);
+        final ok = File('${f.path}.ok');
+        if (complete) {
+          await ok.writeAsString('1');
+        } else if (await ok.exists()) {
+          await ok.delete(); // incompleto: si riprova al prossimo avvio
+        }
       } catch (_) {}
     }
     loading = false;

@@ -1,5 +1,5 @@
 name: devoo_radio
-description: Devoo Radio - radio di tutto il mondo su una mappa.
+description: Devoo Radio Pro - radio di tutto il mondo su una mappa, con registrazione.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -16,6 +16,9 @@ dependencies:
   http: ^1.2.0
   path_provider: ^2.1.4
   shared_preferences: ^2.3.0
+  audioplayers: ^6.1.0
+  share_plus: ^10.1.4
+  google_mobile_ads: any
 
 dev_dependencies:
   flutter_test:

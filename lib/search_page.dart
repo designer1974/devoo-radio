@@ -291,7 +291,7 @@ class _CountryPageState extends State<CountryPage> {
         .toList();
     return Scaffold(
       appBar: AppBar(title: Text('${c.flag}  ${c.displayName}')),
-      bottomNavigationBar: const MiniPlayer(),
+      bottomNavigationBar: const PlayerBar(),
       body: all == null
           ? Center(
               child: _failed
