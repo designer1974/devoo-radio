@@ -120,6 +120,34 @@ class Schedules extends ChangeNotifier {
     }
   }
 
+  Future<bool> batteryOk() async {
+    try {
+      return await _ch.invokeMethod<bool>('batteryOk') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> batteryAsk() async {
+    try {
+      await _ch.invokeMethod('batteryAsk');
+    } catch (_) {}
+  }
+
+  Future<bool> isHuawei() async {
+    try {
+      return await _ch.invokeMethod<bool>('isHuawei') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> openAutostart() async {
+    try {
+      await _ch.invokeMethod('openAutostart');
+    } catch (_) {}
+  }
+
   Future<void> openExactSettings() async {
     try {
       await _ch.invokeMethod('schedExactSettings');
@@ -145,6 +173,8 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   late TimeOfDay _endTime;
   bool _daily = false;
   bool _saving = false;
+  bool _batteryOk = true;
+  bool _huawei = false;
 
   final _q = TextEditingController();
   List<Station>? _results;
@@ -159,6 +189,16 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     _start = DateTime(now.year, now.month, now.day, now.hour + 1);
     final e = _start.add(const Duration(hours: 1));
     _endTime = TimeOfDay(hour: e.hour, minute: e.minute);
+    _checkPhone();
+  }
+
+  Future<void> _checkPhone() async {
+    final b = await Schedules.i.batteryOk();
+    final h = await Schedules.i.isHuawei();
+    if (mounted) setState(() {
+      _batteryOk = b;
+      _huawei = h;
+    });
   }
 
   @override
@@ -317,6 +357,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
         );
         if (go == true) await Schedules.i.openExactSettings();
       }
+      if (!await Schedules.i.batteryOk()) await Schedules.i.batteryAsk();
       final st = _startsNow ? DateTime.now() : _start;
       // niente doppioni: si chiede se sostituire quello che c'è già in quell'orario
       await Schedules.i.reload();
@@ -507,13 +548,59 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
               onPressed: s == null || _saving ? null : _save,
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Text(
-              'Funziona anche con l\'app chiusa e lo schermo spento: serve solo internet. '
-              'Su Huawei: Impostazioni → Batteria → Avvio app → Devoo Radio Pro → gestisci manualmente e attiva tutto, '
-              'così il telefono non la blocca di notte.',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          Card(
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Parte da sola, anche con l\'app chiusa',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text(
+                    'All\'ora di inizio Android avvia la registrazione da solo: non serve aprire l\'app né accendere la radio. '
+                    'Finché c\'è un programma in attesa vedi la notifica «⏰ pronta a registrare»: lasciala, è quella che tiene sveglia l\'app.',
+                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 10),
+                  if (!_batteryOk)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.battery_alert, color: recRed),
+                      title: const Text('Il risparmio batteria può bloccarla'),
+                      subtitle: const Text('Tocca e scegli «Consenti»'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () async {
+                        await Schedules.i.batteryAsk();
+                        await Future<void>.delayed(const Duration(seconds: 2));
+                        _checkPhone();
+                      },
+                    )
+                  else
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.battery_full, color: accent),
+                      title: Text('Risparmio batteria: a posto'),
+                    ),
+                  if (_huawei) ...[
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.phone_android, color: recRed),
+                      title: const Text('Huawei: consenti l\'avvio automatico'),
+                      subtitle: const Text(
+                          'Si apre «Avvio app»: trova Devoo Radio Pro, spegni «Gestisci automaticamente» e attiva tutte e 3 le voci'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: Schedules.i.openAutostart,
+                    ),
+                    Text(
+                      'Consiglio: nelle app recenti trascina giù la scheda di Devoo Radio Pro per bloccarla con il lucchetto 🔒, '
+                      'così «Pulisci tutto» non la chiude.',
+                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],

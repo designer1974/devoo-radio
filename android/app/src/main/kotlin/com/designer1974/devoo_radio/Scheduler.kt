@@ -65,8 +65,13 @@ object Scheduler {
         save(ctx, out)
     }
 
-    @Synchronized
     fun remove(ctx: Context, id: String) {
+        removeOnly(ctx, id)
+        refreshStandby(ctx)
+    }
+
+    @Synchronized
+    private fun removeOnly(ctx: Context, id: String) {
         cancel(ctx, id)
         val a = all(ctx)
         val out = JSONArray()
@@ -78,6 +83,7 @@ object Scheduler {
         j.put("running", false)
         put(ctx, j)
         arm(ctx, j)
+        refreshStandby(ctx)
     }
 
     fun exactAllowed(ctx: Context): Boolean {
@@ -140,12 +146,13 @@ object Scheduler {
             j.put("running", false)
             if (j.optBoolean("daily")) rollForward(j)
             if (j.getLong("end") <= System.currentTimeMillis()) {
-                remove(ctx, j.getString("id"))
+                removeOnly(ctx, j.getString("id"))
             } else {
                 put(ctx, j)
                 arm(ctx, j)
             }
         }
+        refreshStandby(ctx)
     }
 
     fun cancel(ctx: Context, id: String) {
@@ -193,6 +200,39 @@ object Scheduler {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+    /** Il prossimo programma in attesa (non ancora iniziato). */
+    fun nextPending(ctx: Context): JSONObject? {
+        val a = all(ctx)
+        var best: JSONObject? = null
+        val now = System.currentTimeMillis()
+        for (i in 0 until a.length()) {
+            val j = a.getJSONObject(i)
+            if (j.getLong("end") <= now) continue
+            if (best == null || j.getLong("start") < best.getLong("start")) best = j
+        }
+        return best
+    }
+
+    /**
+     * Modalità "pronta": con un programma in attesa l'app tiene una piccola notifica fissa.
+     * Così Huawei e altri telefoni non chiudono l'app (e le sue sveglie) quando la si toglie dalle recenti.
+     */
+    fun refreshStandby(ctx: Context) {
+        if (!ScheduledRecService.standbySupported) return
+        val i = Intent(ctx, ScheduledRecService::class.java).setAction(ScheduledRecService.ACTION_STANDBY)
+        try {
+            if (nextPending(ctx) == null) {
+                if (ScheduledRecService.isRunning) ctx.startService(i) // si spegne da solo
+            } else if (Build.VERSION.SDK_INT >= 26) {
+                ctx.startForegroundService(i)
+            } else {
+                ctx.startService(i)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "modalità pronta non avviata", e)
+        }
+    }
+
     fun startRec(ctx: Context, id: String) {
         val i = Intent(ctx, ScheduledRecService::class.java).putExtra("id", id)
         try {
@@ -224,6 +264,10 @@ class RecBootReceiver : BroadcastReceiver() {
 class ScheduledRecService : Service() {
     companion object {
         const val ACTION_STOP = "devoo.rec.STOP"
+        const val ACTION_STANDBY = "devoo.rec.STANDBY"
+        // Android 14+ limita i servizi lunghi "dataSync": lì le sveglie bastano da sole
+        val standbySupported = Build.VERSION.SDK_INT < 34
+        @Volatile var isRunning = false
         /** Programma che sta registrando adesso (null = nessuno). */
         @Volatile var activeId: String? = null
         @Volatile var activeName: String = ""
@@ -249,11 +293,40 @@ class ScheduledRecService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        isRunning = true
+    }
+
+    /** Notifica "pronta" se c'è un programma in attesa, altrimenti si spegne. */
+    private fun standby() {
+        val next = Scheduler.nextPending(this)
+        if (next == null || !standbySupported) {
+            showForeground("Devoo Radio Pro")
+            stopSelfNow()
+            return
+        }
+        val c = Calendar.getInstance().apply { timeInMillis = next.getLong("start") }
+        val today = Calendar.getInstance()
+        val day = if (c.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)) "" else "domani "
+        showForeground(
+            "⏰ ${next.optString("name")} ${day}alle %02d:%02d · pronta a registrare".format(
+                c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)
+            ),
+            stopButton = false,
+        )
+    }
+
+    private fun stopSelfNow() {
+        if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STANDBY) {
+            if (currentId == null) standby() else showForeground(lastText)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             showForeground("Salvataggio…")
             if (currentId != null) {
@@ -268,7 +341,7 @@ class ScheduledRecService : Service() {
         val id = intent?.getStringExtra("id")
         val j = id?.let { Scheduler.get(this, it) }
         if (j == null || currentId != null) {
-            if (currentId == null) { showForeground("Devoo Radio Pro"); stopSelf() }
+            if (currentId == null) standby()
             else if (j != null && id != currentId) skip(j) // si sovrappone a quella in corso
             return START_NOT_STICKY
         }
@@ -366,13 +439,15 @@ class ScheduledRecService : Service() {
                 activeId = null
                 currentId = null
                 finishing = false
-                if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
-                stopSelf()
+                standby() // altro programma in attesa: resta pronta; altrimenti si chiude
             }
         }.start()
     }
 
-    private fun showForeground(text: String) {
+    private var lastText = "Devoo Radio Pro"
+
+    private fun showForeground(text: String, stopButton: Boolean = true) {
+        lastText = text
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(
@@ -389,16 +464,18 @@ class ScheduledRecService : Service() {
         )
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
         else @Suppress("DEPRECATION") Notification.Builder(this)
-        val n = b.setContentTitle("Devoo Radio Pro")
+        b.setContentTitle("Devoo Radio Pro")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.presence_audio_online)
+            .setSmallIcon(if (stopButton) android.R.drawable.presence_audio_online else android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
             .setContentIntent(open)
-            .addAction(
+        if (stopButton) {
+            b.addAction(
                 @Suppress("DEPRECATION")
                 Notification.Action.Builder(android.R.drawable.ic_media_pause, "Ferma e salva", stop).build()
             )
-            .build()
+        }
+        val n = b.build()
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -408,6 +485,7 @@ class ScheduledRecService : Service() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        isRunning = false
         handler.removeCallbacksAndMessages(null)
         try { wake?.release() } catch (_: Exception) {}
         super.onDestroy()

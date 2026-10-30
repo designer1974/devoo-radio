@@ -32,6 +32,7 @@ class MainActivity : AudioServiceActivity() {
                 registerReceiver(shutdown, f)
             }
         } catch (_: Exception) {}
+        try { Scheduler.refreshStandby(this) } catch (_: Exception) {}
     }
 
     override fun onDestroy() {
@@ -111,6 +112,43 @@ class MainActivity : AudioServiceActivity() {
                         result.success(null)
                     }
                     "schedExactOk" -> result.success(Scheduler.exactAllowed(this))
+                    "batteryOk" -> {
+                        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                        result.success(Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(packageName))
+                    }
+                    "batteryAsk" -> {
+                        if (Build.VERSION.SDK_INT >= 23) {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:$packageName")))
+                            } catch (_: Exception) {
+                                try { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+                            }
+                        }
+                        result.success(null)
+                    }
+                    "isHuawei" -> result.success(
+                        Build.MANUFACTURER.equals("HUAWEI", true) || Build.MANUFACTURER.equals("HONOR", true)
+                    )
+                    "openAutostart" -> {
+                        // pagina "Avvio app" di Huawei/Honor; se non c'è, le impostazioni dell'app
+                        val tries = listOf(
+                            android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+                            android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"),
+                            android.content.ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+                        )
+                        var ok = false
+                        for (c in tries) {
+                            try { startActivity(Intent().setComponent(c).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); ok = true; break } catch (_: Exception) {}
+                        }
+                        if (!ok) {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    android.net.Uri.parse("package:$packageName")))
+                            } catch (_: Exception) {}
+                        }
+                        result.success(ok)
+                    }
                     "schedExactSettings" -> {
                         if (Build.VERSION.SDK_INT >= 31) {
                             try {
