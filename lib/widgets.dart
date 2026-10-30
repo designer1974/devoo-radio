@@ -120,7 +120,16 @@ class StationTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontWeight: FontWeight.w600, color: active ? accent : null)),
-          subtitle: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: RecController.i.isRecording(station)
+              ? Text(
+                  RecController.i.anySaving
+                      ? 'Salvataggio…'
+                      : '● REC ${fmtDur(RecController.i.elapsed)} · ${fmtSize(RecController.i.recBytes)}',
+                  maxLines: 1,
+                  style: const TextStyle(color: recRed, fontWeight: FontWeight.w700))
+              : (RecController.i.isPending(station)
+                  ? const Text('Avvio registrazione…', style: TextStyle(color: recRed))
+                  : Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis)),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -259,6 +268,15 @@ class MiniPlayer extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w700)),
+                        if (RecController.i.isRecording(s))
+                          Text(
+                            RecController.i.anySaving
+                                ? 'Salvataggio…'
+                                : '● REC ${fmtDur(RecController.i.elapsed)} · ${fmtSize(RecController.i.recBytes)}',
+                            maxLines: 1,
+                            style: const TextStyle(color: recRed, fontWeight: FontWeight.w700, fontSize: 13),
+                          )
+                        else
                         Text(
                           p.isBuffering
                               ? 'Collegamento…'
@@ -444,7 +462,10 @@ class RecButton extends StatelessWidget {
   const RecButton({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: Listenable.merge([RecController.i, RadioPlayer.i]), builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
     final rec = RecController.i;
     final p = RadioPlayer.i;
     if (rec.anySaving) {
@@ -470,7 +491,10 @@ class BigRecButton extends StatelessWidget {
   const BigRecButton({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: Listenable.merge([RecController.i, RadioPlayer.i]), builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
     final rec = RecController.i;
     final p = RadioPlayer.i;
     if (rec.busy) return const RecBanner();
@@ -516,7 +540,7 @@ class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMix
       builder: (context, _) {
         final rec = RecController.i;
         if (!rec.busy) return const SizedBox.shrink();
-        final saving = rec.saving ?? (rec.extStopping ? 0.0 : null);
+        final saving = rec.saving ?? (rec.extStopping || rec.extSaving ? 0.0 : null);
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
@@ -620,4 +644,16 @@ class _TileRec extends StatelessWidget {
       onPressed: rec.busy ? null : () => rec.recordStation(station),
     );
   }
+}
+
+
+/// In basso in ogni pagina: striscia REC + mini player.
+class PlayerBar extends StatelessWidget {
+  const PlayerBar({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [RecBanner(), MiniPlayer()],
+      );
 }

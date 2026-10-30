@@ -145,8 +145,9 @@ class RecController extends ChangeNotifier {
 
   /// C'è una registrazione qualsiasi (manuale o programmata).
   bool get busy => station != null || external;
-  bool get anyRecording => recording || (external && !extStopping);
-  bool get anySaving => saving != null || extStopping;
+  bool extSaving = false; // il servizio sta chiudendo il file
+  bool get anyRecording => recording || (external && !extStopping && !extSaving);
+  bool get anySaving => saving != null || extStopping || extSaving;
 
   String get recName => station?.name ?? '${extFlag.isEmpty ? '' : '$extFlag '}$extName';
   int get recBytes => station != null ? bytes : extBytes;
@@ -184,12 +185,20 @@ class RecController extends ChangeNotifier {
         final e = (st['schedEnd'] as num?)?.toInt() ?? 0;
         extEnd = e > 0 ? DateTime.fromMillisecondsSinceEpoch(e) : null;
         extBytes = (st['bytes'] as num?)?.toInt() ?? 0;
+        extSaving = st['running'] == false;
         if (first) unawaited(Schedules.i.reload());
         notifyListeners();
+        // sicurezza: ora di fine passata ma ancora attiva -> si ferma
+        final end = extEnd;
+        if (end != null && !extStopping && !extSaving &&
+            DateTime.now().isAfter(end.add(const Duration(seconds: 8)))) {
+          unawaited(stopAny());
+        }
       } else if (extId != null) {
         // finita (orario raggiunto o fermata): il file è pronto
         extId = null;
         extStopping = false;
+        extSaving = false;
         extBytes = 0;
         notifyListeners();
         _messages.add('Registrazione programmata salvata in Registrate');

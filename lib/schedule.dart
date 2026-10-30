@@ -367,6 +367,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     final len = _end.difference(_start);
     return Scaffold(
       appBar: AppBar(title: const Text('Programma registrazione')),
+      bottomNavigationBar: const PlayerBar(),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [

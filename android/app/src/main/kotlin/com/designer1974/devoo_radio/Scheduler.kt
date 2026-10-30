@@ -150,7 +150,41 @@ object Scheduler {
 
     fun cancel(ctx: Context, id: String) {
         try { (ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(alarmIntent(ctx, id)) } catch (_: Exception) {}
+        try { (ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(stopIntent(ctx, id)) } catch (_: Exception) {}
     }
+
+    fun cancelStop(ctx: Context, id: String) {
+        try { (ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(stopIntent(ctx, id)) } catch (_: Exception) {}
+    }
+
+    /** Sveglia di fine: ferma la registrazione all'ora esatta, anche a schermo spento. */
+    fun armStop(ctx: Context, id: String, end: Long) {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pi = stopIntent(ctx, id)
+        try {
+            if (exactAllowed(ctx)) {
+                val show = PendingIntent.getActivity(
+                    ctx, 0, Intent(ctx, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(end, show), pi)
+            } else if (Build.VERSION.SDK_INT >= 23) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, end, pi)
+            } else {
+                am.setExact(AlarmManager.RTC_WAKEUP, end, pi)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "sveglia di fine non impostata", e)
+            try { am.set(AlarmManager.RTC_WAKEUP, end, pi) } catch (_: Exception) {}
+        }
+    }
+
+    private fun stopIntent(ctx: Context, id: String): PendingIntent =
+        PendingIntent.getBroadcast(
+            ctx, id.hashCode() + 1,
+            Intent(ctx, RecAlarmReceiver::class.java).setAction("devoo.stop.$id").putExtra("id", id).putExtra("stop", true),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
     private fun alarmIntent(ctx: Context, id: String): PendingIntent =
         PendingIntent.getBroadcast(
@@ -172,7 +206,11 @@ object Scheduler {
 class RecAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
-        Scheduler.startRec(context, id)
+        if (intent.getBooleanExtra("stop", false)) {
+            ScheduledRecService.requestStop(context)
+        } else {
+            Scheduler.startRec(context, id)
+        }
     }
 }
 
@@ -191,21 +229,40 @@ class ScheduledRecService : Service() {
         @Volatile var activeName: String = ""
         @Volatile var activeFlag: String = ""
         @Volatile var activeEnd: Long = 0
+        @Volatile private var instance: ScheduledRecService? = null
+
+        /** Ferma la registrazione programmata (dalla sveglia di fine, dall'app, dalla notifica). */
+        fun requestStop(ctx: Context) {
+            val s = instance
+            // nessun servizio attivo = niente da fermare (non tocca una registrazione manuale)
+            s?.handler?.post { s.finish() }
+        }
         private const val CHANNEL = "devoo_rec_sched"
         private const val NOTIF = 7101
     }
 
-    private val handler = Handler(Looper.getMainLooper())
+    val handler = Handler(Looper.getMainLooper())
     private var currentId: String? = null
     private var wake: PowerManager.WakeLock? = null
     private var finishing = false
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             showForeground("Salvataggio…")
-            finish()
+            if (currentId != null) {
+                finish()
+            } else {
+                // nessuna programmata in corso: non tocca una registrazione manuale
+                if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
+                stopSelf()
+            }
             return START_NOT_STICKY
         }
         val id = intent?.getStringExtra("id")
@@ -240,10 +297,13 @@ class ScheduledRecService : Service() {
                 st.get(Calendar.DAY_OF_MONTH), st.get(Calendar.MONTH) + 1,
                 st.get(Calendar.HOUR_OF_DAY), st.get(Calendar.MINUTE)
             ).trim()
+            StreamRecorder.onTimeUp = { handler.post { finish() } }
             StreamRecorder.start(
                 j.getString("url"), dir, ".rec_$now", unique(dir, title),
                 j.optInt("bitrate", 32000), j.optInt("outCh", 2), j.optBoolean("he", true),
+                end,
             )
+            Scheduler.armStop(this, id!!, end)
             j.put("running", true)
             Scheduler.put(this, j)
             activeId = id
@@ -281,13 +341,15 @@ class ScheduledRecService : Service() {
         return f.absolutePath
     }
 
-    private fun finish() {
+    fun finish() {
         if (finishing) return
         finishing = true
         handler.removeCallbacksAndMessages(null)
         val id = currentId
+        if (id != null) Scheduler.cancelStop(this, id)
         Thread {
             try { StreamRecorder.stop() } catch (e: Exception) { Log.e("ScheduledRec", "stop", e) }
+            StreamRecorder.onTimeUp = null
             if (id != null) {
                 val j = Scheduler.get(this, id)
                 if (j != null && j.optBoolean("daily")) {
@@ -345,6 +407,7 @@ class ScheduledRecService : Service() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
         handler.removeCallbacksAndMessages(null)
         try { wake?.release() } catch (_: Exception) {}
         super.onDestroy()

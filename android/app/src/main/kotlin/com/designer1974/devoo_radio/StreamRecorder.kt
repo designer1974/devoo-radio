@@ -33,6 +33,9 @@ object StreamRecorder {
     private var thread: Thread? = null
     @Volatile private var worker: Thread? = null
 
+    /** Chiamato quando si raggiunge [stopAt]. */
+    @Volatile var onTimeUp: (() -> Unit)? = null
+
     /** C'è già una registrazione in corso (manuale o programmata). */
     val busy: Boolean get() = worker != null
     @Volatile private var conn: HttpURLConnection? = null
@@ -41,14 +44,19 @@ object StreamRecorder {
 
     @Volatile var startedAt = 0L
         private set
+    /** Ora di fine (programmata): il registratore si ferma da solo anche se tutto il resto dorme. */
+    @Volatile var stopAt = Long.MAX_VALUE
     @Volatile var url = ""
         private set
     private var base = ""
     private var dir = ""
     private var dst = ""
 
-    fun start(url: String, dir: String, name: String, dst: String, bitrate: Int, outCh: Int, he: Boolean) {
+    fun start(url: String, dir: String, name: String, dst: String, bitrate: Int, outCh: Int, he: Boolean,
+              until: Long = Long.MAX_VALUE) {
         stop()
+        stopAt = until
+        if (until == Long.MAX_VALUE) onTimeUp = null // registrazione manuale: nessuna ora di fine
         bytes = 0
         error = null
         encoded = false
@@ -287,6 +295,7 @@ object StreamRecorder {
                     while (running) {
                         val n = src.read(buf)
                         if (n < 0) break
+                        if (System.currentTimeMillis() >= stopAt) { running = false; onTimeUp?.invoke(); break }
                         bytes += n
                         fails = 0
                         // ogni 2 minuti un pezzo nuovo (non per ogg: le intestazioni sono solo all'inizio)
