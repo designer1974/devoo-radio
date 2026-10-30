@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import 'favorites_page.dart';
@@ -16,6 +17,7 @@ import 'pro.dart';
 import 'store.dart';
 import 'update.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 void main() {
   runZonedGuarded(() async {
@@ -32,6 +34,7 @@ void main() {
     } catch (e) {
       debugPrint('Audio in background non disponibile: $e');
     }
+    await Lang.i.init();
     await Pro.i.init();
     await Library.i.init();
     await RecSettings.i.load();
@@ -52,7 +55,9 @@ class DevooRadioApp extends StatelessWidget {
       brightness: Brightness.dark,
       surface: const Color(0xFF10151B),
     );
-    return MaterialApp(
+    return ListenableBuilder(
+      listenable: Lang.i,
+      builder: (context, _) => MaterialApp(
       title: Pro.i.appName,
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
@@ -64,6 +69,15 @@ class DevooRadioApp extends StatelessWidget {
       ),
       theme: ThemeData(colorScheme: scheme, useMaterial3: true),
       home: const HomeShell(),
+      // lingue: anche l'arabo, scritto da destra a sinistra
+      locale: Locale(Lang.i.code),
+      supportedLocales: [for (final c in Lang.codes) Locale(c)],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+    ),
     );
   }
 }
@@ -133,16 +147,16 @@ class _HomeShellState extends State<HomeShell> {
             NavigationBar(
               selectedIndex: tab,
               onDestinationSelected: (i) => tabIndex.value = i,
-              destinations: const [
+              destinations: [
                 NavigationDestination(
-                    icon: Icon(Icons.public_outlined), selectedIcon: Icon(Icons.public), label: 'Mappa'),
-                NavigationDestination(icon: Icon(Icons.search), label: 'Cerca'),
+                    icon: Icon(Icons.public_outlined), selectedIcon: Icon(Icons.public), label: tr('Mappa')),
+                NavigationDestination(icon: Icon(Icons.search), label: tr('Cerca')),
                 NavigationDestination(
                     icon: Icon(Icons.favorite_border),
                     selectedIcon: Icon(Icons.favorite),
-                    label: 'Preferiti'),
+                    label: tr('Preferiti')),
                 NavigationDestination(
-                    icon: Icon(Icons.mic_none), selectedIcon: Icon(Icons.mic), label: 'Registrate'),
+                    icon: Icon(Icons.mic_none), selectedIcon: Icon(Icons.mic), label: tr('Registrate')),
               ],
             ),
           ],

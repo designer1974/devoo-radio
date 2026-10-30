@@ -20,7 +20,7 @@ import java.util.concurrent.LinkedBlockingQueue
  */
 object StreamRecorder {
     private const val TAG = "StreamRecorder"
-    private const val CHUNK_MS = 120_000L
+    private const val CHUNK_MS = 30_000L
     private val DONE = File("")
 
     @Volatile var running = false

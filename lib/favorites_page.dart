@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import 'store.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 class FavoritesPage extends StatelessWidget {
   const FavoritesPage({super.key});

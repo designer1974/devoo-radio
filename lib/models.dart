@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'i18n.dart' show Lang;
+
 /// Bandiera emoji dal codice paese (IT → 🇮🇹). Codice non valido → 🌐
 String flagEmoji(String code) {
   final c = code.trim().toUpperCase();
@@ -245,7 +247,8 @@ class Country {
   const Country(this.code, this.name, this.count);
 
   String get flag => flagEmoji(code);
-  String get displayName => italianCountryNames[code] ?? name;
+  /// In italiano il nome tradotto, nelle altre lingue il nome internazionale.
+  String get displayName => Lang.i.code == 'it' ? (italianCountryNames[code] ?? name) : name;
 
   bool matches(String q) {
     final t = q.trim().toLowerCase();

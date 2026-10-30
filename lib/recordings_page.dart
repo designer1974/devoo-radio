@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:share_plus/share_plus.dart';
 
 import 'editor.dart';
@@ -12,6 +12,7 @@ import 'recorder.dart';
 import 'recording.dart';
 import 'schedule.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 class RecordingsPage extends StatefulWidget {
   const RecordingsPage({super.key});
@@ -75,8 +76,8 @@ class _RecordingsPageState extends State<RecordingsPage> {
           controller: ctrl,
           autofocus: true,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            helperText: 'Per la bandiera scrivi il paese con la tastiera (es. Spain → 🇪🇸)',
+          decoration: InputDecoration(
+            helperText: tr('Per la bandiera scrivi il paese con la tastiera (es. Spain → 🇪🇸)'),
             helperMaxLines: 2,
           ),
           onSubmitted: (v) => Navigator.pop(ctx, v),
