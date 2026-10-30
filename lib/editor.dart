@@ -5,10 +5,11 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import 'recorder.dart';
 import 'wav_edit.dart';
+import 'i18n.dart';
 
 /// Editor avanzato: forma d'onda con zoom, selezione,
 /// taglio con unione automatica, annulla/ripeti, anteprima e salvataggio.

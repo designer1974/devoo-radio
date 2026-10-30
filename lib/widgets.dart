@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import 'ads.dart';
 import 'models.dart';
@@ -9,6 +9,7 @@ import 'recording.dart';
 import 'schedule.dart';
 import 'striped.dart';
 import 'store.dart';
+import 'i18n.dart';
 
 /// Navigazione condivisa: scheda attiva e stazione da mostrare sulla mappa.
 final tabIndex = ValueNotifier<int>(0);
@@ -670,4 +671,37 @@ class PlayerBar extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [AdBanner(), RecBanner(), MiniPlayer()],
       );
+}
+
+
+/// Scelta della lingua: bandiera della lingua attuale, menu con tutte le lingue.
+class LangButton extends StatelessWidget {
+  const LangButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Lang.i,
+      builder: (context, _) => PopupMenuButton<String>(
+        tooltip: tr('Lingua'),
+        onSelected: Lang.i.set,
+        itemBuilder: (_) => [
+          for (final (code, flag, name) in Lang.all)
+            PopupMenuItem(
+              value: code,
+              child: Row(children: [
+                Text(flag, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 12),
+                Text(name, style: TextStyle(fontWeight: code == Lang.i.code ? FontWeight.w800 : FontWeight.w400)),
+                if (code == Lang.i.code) ...[const Spacer(), const Icon(Icons.check, color: accent, size: 18)],
+              ]),
+            ),
+        ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          child: Text(Lang.i.flag, style: const TextStyle(fontSize: 24)),
+        ),
+      ),
+    );
+  }
 }

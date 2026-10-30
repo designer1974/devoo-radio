@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'paywall.dart';
 import 'pro.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 /// ID di PROVA di Google: da sostituire con quelli del tuo account AdMob prima di pubblicare.
 const _bannerId = 'ca-app-pub-3940256099942544/6300978111';

@@ -1,11 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import 'api.dart';
 import 'models.dart';
 import 'store.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 const _genres = [
   ('Pop', 'pop'),
@@ -127,11 +128,11 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             child: SearchBar(
               controller: _text,
-              hintText: switch (_tabs.index) {
+              hintText: tr(switch (_tabs.index) {
                 1 => 'Paese: Marocco, Italia, Egypt…',
                 2 => 'Genere: jazz, news, quran…',
                 _ => 'Nome della radio o città',
-              },
+              }),
               leading: const Icon(Icons.search),
               trailing: [
                 if (_text.text.isNotEmpty)
@@ -150,10 +151,10 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
           TabBar(
             controller: _tabs,
             onTap: (_) => setState(() {}),
-            tabs: const [
-              Tab(icon: Icon(Icons.radio), text: 'Radio'),
-              Tab(icon: Icon(Icons.flag), text: 'Paesi'),
-              Tab(icon: Icon(Icons.music_note), text: 'Generi'),
+            tabs: [
+              Tab(icon: const Icon(Icons.radio), text: tr('Radio')),
+              Tab(icon: const Icon(Icons.flag), text: tr('Paesi')),
+              Tab(icon: const Icon(Icons.music_note), text: tr('Generi')),
             ],
           ),
           if (_loading) const LinearProgressIndicator(minHeight: 2) else const SizedBox(height: 2),
@@ -307,7 +308,7 @@ class _CountryPageState extends State<CountryPage> {
                   child: TextField(
                     decoration: InputDecoration(
                       prefixIcon: const Icon(Icons.filter_list),
-                      hintText: 'Filtra ${all.length} radio (nome, città, genere)',
+                      hintText: tr('Filtra ${all.length} radio (nome, città, genere)'),
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),

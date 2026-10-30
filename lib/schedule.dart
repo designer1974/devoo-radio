@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 
 import 'api.dart';
@@ -8,6 +8,7 @@ import 'paywall.dart';
 import 'recorder.dart';
 import 'recording.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 /// Una registrazione programmata.
 class Schedule {
@@ -182,7 +183,6 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   bool _searching = false;
   int _seq = 0;
 
-  static const _weekdays = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
 
   @override
   void initState() {
@@ -226,7 +226,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     if (d == 0) return 'Oggi';
     if (d == 1) return 'Domani';
     final b = _dayBase(d);
-    final w = _weekdays[b.weekday - 1];
+    final w = weekdayName(b.weekday);
     return '${w[0].toUpperCase()}${w.substring(1)} ${b.day}';
   }
 
@@ -341,7 +341,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
       menuMaxHeight: 360,
       borderRadius: BorderRadius.circular(12),
       decoration: InputDecoration(
-        labelText: label,
+        labelText: tr(label),
         border: const OutlineInputBorder(),
         isDense: true,
         contentPadding: const EdgeInsets.fromLTRB(12, 14, 6, 14),
@@ -386,10 +386,10 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
             TextField(
               controller: _q,
               autofocus: true,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Scrivi la radio, es. Fox News',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: tr('Scrivi la radio, es. Fox News'),
+                border: const OutlineInputBorder(),
               ),
               onChanged: _search,
             ),

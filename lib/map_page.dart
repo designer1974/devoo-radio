@@ -1,10 +1,11 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'locate.dart';
 import 'models.dart';
 import 'paywall.dart';
 import 'player.dart';
@@ -12,6 +13,7 @@ import 'pro.dart';
 import 'search_page.dart';
 import 'store.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
@@ -26,6 +28,9 @@ class _MapPageState extends State<MapPage> {
   int _zoom = 3;
   List<CircleMarker> _dots = const [];
   Place? _selected;
+  IpLocation? _me;
+  bool _locating = false;
+  bool _autoLocated = false;
 
   @override
   void initState() {
@@ -171,6 +176,59 @@ class _MapPageState extends State<MapPage> {
     return KeyEventResult.ignored;
   }
 
+  /// Trova la città dell'utente dall'IP, sposta la mappa e mostra le radio vicine.
+  Future<void> _locate({bool auto = false}) async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    final messenger = ScaffoldMessenger.of(context);
+    if (!auto) {
+      messenger.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text(tr('Cerco dove sei…'))));
+    }
+    final loc = await locateByIp();
+    if (!mounted) return;
+    setState(() {
+      _locating = false;
+      if (loc != null) _me = loc;
+    });
+    if (loc == null) {
+      if (!auto) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text('Posizione non trovata. Controlla internet e riprova.')));
+      }
+      return;
+    }
+    try {
+      _map.move(LatLng(loc.lat, loc.lng), auto ? 5 : 7);
+    } catch (_) {}
+    messenger.hideCurrentSnackBar();
+    if (!auto) {
+      messenger.showSnackBar(
+          SnackBar(behavior: SnackBarBehavior.floating, content: Text(tr('Sei a {}').replaceFirst('{}', loc.label))));
+      _openNearby(loc);
+    }
+  }
+
+  /// Le radio più vicine all'utente, dalla più vicina.
+  void _openNearby(IpLocation loc) {
+    final places = StationStore.i.places;
+    if (places.isEmpty) return;
+    double d(Place p) {
+      final dl = (p.lat - loc.lat), dg = (p.lng - loc.lng) * math.cos(loc.lat * math.pi / 180);
+      return dl * dl + dg * dg;
+    }
+    final near = [...places]..sort((a, b) => d(a).compareTo(d(b)));
+    final stations = [for (final p in near.take(25)) ...p.stations].take(60).toList();
+    showStationsSheet(
+      context,
+      title: '📍 ${tr('Radio vicino a te')}',
+      subtitle: loc.label,
+      stations: stations,
+    );
+  }
+
   void _surprise() {
     final s = StationStore.i.random();
     if (s == null) return;
@@ -186,6 +244,12 @@ class _MapPageState extends State<MapPage> {
       listenable: Listenable.merge([StationStore.i, Library.i]),
       builder: (context, _) {
         final store = StationStore.i;
+        if (!_autoLocated && store.places.isNotEmpty) {
+          _autoLocated = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && mapFocus.value == null) _locate(auto: true);
+          });
+        }
         final dots = _buildDots(store.places);
         final sel = _selected;
         final tv = Pro.i.isTv;
@@ -211,6 +275,16 @@ class _MapPageState extends State<MapPage> {
               children: [
                 ..._tiles(Library.i.mapStyle),
                 CircleLayer(circles: dots),
+                if (_me != null)
+                  CircleLayer(circles: [
+                    CircleMarker(
+                      point: LatLng(_me!.lat, _me!.lng),
+                      radius: 9,
+                      color: const Color(0xFF3D8BFF),
+                      borderColor: Colors.white,
+                      borderStrokeWidth: 3,
+                    ),
+                  ]),
                 if (sel != null)
                   CircleLayer(circles: [
                     CircleMarker(
@@ -266,7 +340,9 @@ class _MapPageState extends State<MapPage> {
                                     height: 18,
                                     child: CircularProgressIndicator(strokeWidth: 2)),
                               )
-                            else if (!Pro.i.isPro)
+                            else
+                              const LangButton(),
+                            if (!store.loading && !Pro.i.isPro)
                               IconButton(
                                 tooltip: 'Passa a Pro',
                                 icon: const Icon(Icons.workspace_premium_outlined, color: accent),
@@ -297,6 +373,28 @@ class _MapPageState extends State<MapPage> {
                     ],
                   ],
                 ),
+              ),
+            ),
+            Positioned(
+              right: 14,
+              bottom: 150,
+              child: FloatingActionButton.small(
+                heroTag: 'me',
+                tooltip: tr('Dove sono'),
+                onPressed: _locating
+                    ? null
+                    : () {
+                        final me = _me;
+                        if (me != null && !_locating) {
+                          try {
+                            _map.move(LatLng(me.lat, me.lng), 7);
+                          } catch (_) {}
+                        }
+                        _locate();
+                      },
+                child: _locating
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.my_location),
               ),
             ),
             Positioned(

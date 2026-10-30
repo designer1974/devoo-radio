@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import 'pro.dart';
 import 'widgets.dart';
+import 'i18n.dart';
 
 /// Apre «Passa a Pro». [reason] = cosa voleva fare l'utente (mostrato in alto).
 Future<void> openPaywall(BuildContext context, {String? reason}) {

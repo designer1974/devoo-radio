@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flutter_map: ^8.1.0
   latlong2: ^0.9.1
   just_audio: ^0.10.0
