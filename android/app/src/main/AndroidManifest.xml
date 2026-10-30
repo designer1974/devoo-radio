@@ -8,7 +8,7 @@
 
     <!-- usesCleartextTraffic: molte radio trasmettono ancora in http:// -->
     <application
-        android:label="Devoo Radio"
+        android:label="Devoo Radio Pro"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

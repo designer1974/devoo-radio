@@ -6,6 +6,9 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'favorites_page.dart';
 import 'map_page.dart';
 import 'player.dart';
+import 'recorder.dart';
+import 'recording.dart';
+import 'recordings_page.dart';
 import 'search_page.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -26,8 +29,10 @@ void main() {
       debugPrint('Audio in background non disponibile: $e');
     }
     await Library.i.init();
+    await RecSettings.i.load();
     runApp(const DevooRadioApp());
     unawaited(StationStore.i.init());
+    unawaited(RecController.i.recoverInterrupted());
   }, (error, stack) => debugPrint('Errore non gestito: $error'));
 }
 
@@ -42,7 +47,7 @@ class DevooRadioApp extends StatelessWidget {
       surface: const Color(0xFF10151B),
     );
     return MaterialApp(
-      title: 'Devoo Radio',
+      title: 'Devoo Radio Pro',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
@@ -64,10 +69,12 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   StreamSubscription<String>? _errors;
+  StreamSubscription<String>? _recMsgs;
 
   @override
   void initState() {
     super.initState();
+    _recMsgs = RecController.i.messages.listen(_snack);
     _errors = RadioPlayer.i.errors.listen((msg) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -76,8 +83,16 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+  }
+
   @override
   void dispose() {
+    _recMsgs?.cancel();
     _errors?.cancel();
     super.dispose();
   }
@@ -89,11 +104,12 @@ class _HomeShellState extends State<HomeShell> {
       builder: (context, tab, _) => Scaffold(
         body: IndexedStack(
           index: tab,
-          children: const [MapPage(), SearchPage(), FavoritesPage()],
+          children: const [MapPage(), SearchPage(), FavoritesPage(), RecordingsPage()],
         ),
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const RecBanner(),
             const MiniPlayer(),
             NavigationBar(
               selectedIndex: tab,
@@ -106,6 +122,8 @@ class _HomeShellState extends State<HomeShell> {
                     icon: Icon(Icons.favorite_border),
                     selectedIcon: Icon(Icons.favorite),
                     label: 'Preferiti'),
+                NavigationDestination(
+                    icon: Icon(Icons.mic_none), selectedIcon: Icon(Icons.mic), label: 'Registrate'),
               ],
             ),
           ],

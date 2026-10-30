@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: [pro]
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,10 @@ jobs:
         run: |
           flutter create --platforms=android --org com.designer1974 --project-name devoo_radio .
           rm -f test/widget_test.dart
+          # Pro: app separata, si installa ACCANTO a Devoo Radio normale
+          for f in android/app/build.gradle.kts android/app/build.gradle; do
+            [ -f "$f" ] && sed -i -E 's/applicationId( =)? *"com\.designer1974\.devoo_radio"/applicationId = "com.designer1974.devoo_radio.pro"/' "$f" && grep -n "applicationId" "$f" || true
+          done
 
       - name: Dipendenze
         run: |
@@ -55,6 +59,7 @@ jobs:
             curl -s --compressed -m 60 -A DevooRadio/1.0 -o r.json -w "$h %{http_code} %{size_download}B %{time_total}s  " "https://$h.api.radio-browser.info/json/stations/search?has_geo_info=true&hidebroken=true&order=clickcount&reverse=true&limit=1000" || true
             python3 -c "import json;d=json.load(open('r.json'));print(len(d),'stazioni, con posizione:',sum(1 for x in d if x.get('geo_lat')))" 2>/dev/null || echo "-"
           done
+          for o in 10000 20000 30000 40000; do curl -s -m 60 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/stations/search?has_geo_info=true&hidebroken=true&offset=$o&limit=5" | python3 -c "import json,sys;print('geo offset $o:',len(json.load(sys.stdin)))" || true; done
           curl -s -m 30 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/stations/search?countrycode=MA&hidebroken=true&limit=500" | python3 -c "import json,sys;d=json.load(sys.stdin);print('Marocco:',len(d))" || true
           curl -s -m 30 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/stations/search?state=Rabat&hidebroken=true" | python3 -c "import json,sys;d=json.load(sys.stdin);print('Rabat:',[x['name'] for x in d][:10])" || true
           curl -s -m 30 -A DevooRadio/1.0 "https://de1.api.radio-browser.info/json/countries?hidebroken=true" | python3 -c "import json,sys;d=json.load(sys.stdin);print('Paesi:',len(d), d[:2])" || true
@@ -78,21 +83,21 @@ jobs:
 
       - name: Rinomina APK
         run: |
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk DevooRadio.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk DevooRadio-telefoni-vecchi.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk DevooRadioPro.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk DevooRadioPro-telefoni-vecchi.apk
           ls -la *.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DevooRadio
+          name: DevooRadioPro
           path: '*.apk'
 
       # Pubblica l'APK nella pagina "Releases" per scaricarlo dal telefono
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Devoo Radio build ${{ github.run_number }}
+          tag_name: pro-build-${{ github.run_number }}
+          name: Devoo Radio Pro build ${{ github.run_number }}
           files: |
-            DevooRadio.apk
-            DevooRadio-telefoni-vecchi.apk
-          make_latest: true
+            DevooRadioPro.apk
+            DevooRadioPro-telefoni-vecchi.apk
+          make_latest: false

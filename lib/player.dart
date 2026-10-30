@@ -39,6 +39,9 @@ class RadioPlayer extends ChangeNotifier {
 
   ProcessingState get _state => _player.processingState;
 
+  /// L'utente vuole ascoltare (anche mentre si collega).
+  bool get wantsPlay => current != null && _player.playing;
+
   bool get isPlaying => current != null && _player.playing && _state != ProcessingState.idle;
 
   bool get isBuffering =>

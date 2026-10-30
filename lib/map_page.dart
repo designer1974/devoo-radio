@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'models.dart';
 import 'player.dart';
+import 'search_page.dart';
 import 'store.dart';
 import 'widgets.dart';
 
@@ -18,6 +19,8 @@ class MapPage extends StatefulWidget {
 class _MapPageState extends State<MapPage> {
   final _map = MapController();
   List<Place>? _drawnFor;
+  int _drawnZoom = -1;
+  int _zoom = 3;
   List<CircleMarker> _dots = const [];
   Place? _selected;
 
@@ -33,17 +36,20 @@ class _MapPageState extends State<MapPage> {
     super.dispose();
   }
 
+  /// Puntini più grandi quando si avvicina (come Radio Garden).
   List<CircleMarker> _buildDots(List<Place> places) {
-    if (identical(places, _drawnFor)) return _dots;
+    if (identical(places, _drawnFor) && _zoom == _drawnZoom) return _dots;
     _drawnFor = places;
+    _drawnZoom = _zoom;
+    final scale = (0.75 + (_zoom - 2) * 0.22).clamp(0.75, 2.4);
     _dots = [
       for (final p in places)
         CircleMarker(
           point: LatLng(p.lat, p.lng),
-          radius: 2.6 + math.min(5.0, math.log(p.stations.length) * 1.1),
-          color: accent.withValues(alpha: 0.9),
+          radius: (3.6 + math.min(6.0, math.log(p.stations.length) * 1.5)) * scale,
+          color: accent.withValues(alpha: 0.92),
           borderColor: Colors.black87,
-          borderStrokeWidth: 1,
+          borderStrokeWidth: 1.2,
         ),
     ];
     return _dots;
@@ -78,11 +84,21 @@ class _MapPageState extends State<MapPage> {
 
   void _openPlace(Place place) {
     final n = place.stations.length;
+    final first = place.stations.first;
+    final code = place.countryCode;
     showStationsSheet(
       context,
       title: '${place.flag}  ${place.label}',
-      subtitle: n == 1 ? '1 radio' : '$n radio',
+      subtitle: n == 1 ? '1 radio qui' : '$n radio qui',
       stations: place.stations,
+      action: code.length != 2
+          ? null
+          : (ctx) {
+              Navigator.pop(ctx);
+              Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => CountryPage(country: Country(code, first.country, 0))));
+            },
+      actionLabel: 'Tutte le radio di ${Country(code, first.country, 0).displayName}',
     );
   }
 
@@ -117,6 +133,10 @@ class _MapPageState extends State<MapPage> {
                   flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                 ),
                 onTap: (_, pos) => _onTap(pos),
+                onPositionChanged: (camera, _) {
+                  final z = camera.zoom.round();
+                  if (z != _zoom) setState(() => _zoom = z);
+                },
               ),
               children: [
                 ..._tiles(Library.i.mapStyle),

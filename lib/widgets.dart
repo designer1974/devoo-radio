@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'models.dart';
 import 'player.dart';
+import 'recording.dart';
 import 'store.dart';
 
 /// Navigazione condivisa: scheda attiva e stazione da mostrare sulla mappa.
@@ -101,7 +102,7 @@ class StationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([RadioPlayer.i, Library.i]),
+      listenable: Listenable.merge([RadioPlayer.i, Library.i, RecController.i]),
       builder: (context, _) {
         final p = RadioPlayer.i;
         final active = p.isCurrent(station);
@@ -127,6 +128,7 @@ class StationTile extends StatelessWidget {
                     width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               else if (active && p.isPlaying)
                 const LiveBars(),
+              _TileRec(station),
               IconButton(
                 tooltip: fav ? 'Togli dai preferiti' : 'Aggiungi ai preferiti',
                 icon: Icon(fav ? Icons.favorite : Icons.favorite_border,
@@ -144,7 +146,11 @@ class StationTile extends StatelessWidget {
 
 /// Elenco di stazioni in un foglio che sale dal basso.
 Future<void> showStationsSheet(BuildContext context,
-    {required String title, required String subtitle, required List<Station> stations}) {
+    {required String title,
+    required String subtitle,
+    required List<Station> stations,
+    void Function(BuildContext)? action,
+    String actionLabel = ''}) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -162,6 +168,18 @@ Future<void> showStationsSheet(BuildContext context,
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             subtitle: Text(subtitle),
           ),
+          if (action != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Icons.flag),
+                  label: Text(actionLabel),
+                  onPressed: () => action(context),
+                ),
+              ),
+            ),
           const Divider(height: 1),
           Expanded(
             child: ListView.builder(
@@ -192,7 +210,7 @@ class MiniPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: RadioPlayer.i,
+      listenable: Listenable.merge([RadioPlayer.i, RecController.i]),
       builder: (context, _) {
         final p = RadioPlayer.i;
         final s = p.current;
@@ -229,6 +247,7 @@ class MiniPlayer extends StatelessWidget {
                     ),
                   ),
                   if (p.isPlaying && !p.isBuffering) const LiveBars(),
+                  const RecButton(),
                   IconButton(
                     iconSize: 34,
                     icon: p.isBuffering
@@ -256,7 +275,7 @@ class PlayerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([RadioPlayer.i, Library.i]),
+      listenable: Listenable.merge([RadioPlayer.i, Library.i, RecController.i]),
       builder: (context, _) {
         final p = RadioPlayer.i;
         final s = p.current;
@@ -354,6 +373,8 @@ class PlayerSheet extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 14),
+              const BigRecButton(),
               if (sleep != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -374,6 +395,189 @@ class PlayerSheet extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+
+const recRed = Color(0xFFFF4D4D);
+
+/// Pulsante rotondo ● nel mini player: avvia / ferma la registrazione.
+class RecButton extends StatelessWidget {
+  const RecButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final rec = RecController.i;
+    final p = RadioPlayer.i;
+    if (rec.saving != null) {
+      return const Padding(
+        padding: EdgeInsets.all(10),
+        child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: recRed)),
+      );
+    }
+    return IconButton(
+      tooltip: rec.recording ? 'Ferma e salva' : 'Registra',
+      iconSize: 30,
+      icon: Icon(rec.recording ? Icons.stop_circle_outlined : Icons.fiber_manual_record,
+          color: recRed),
+      onPressed: rec.recording
+          ? rec.stopAndSave
+          : (p.isPlaying && !p.isBuffering ? rec.start : null),
+    );
+  }
+}
+
+/// Pulsante grande nel lettore.
+class BigRecButton extends StatelessWidget {
+  const BigRecButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final rec = RecController.i;
+    final p = RadioPlayer.i;
+    if (rec.saving != null) return const RecBanner();
+    if (rec.recording) return const RecBanner();
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: recRed,
+          side: const BorderSide(color: recRed),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+        icon: const Icon(Icons.fiber_manual_record),
+        label: const Text('Registra questa radio', style: TextStyle(fontWeight: FontWeight.w700)),
+        onPressed: p.isPlaying && !p.isBuffering ? rec.start : null,
+      ),
+    );
+  }
+}
+
+/// Striscia rossa: REC, tempo, dimensione, Ferma.
+class RecBanner extends StatefulWidget {
+  const RecBanner({super.key});
+  @override
+  State<RecBanner> createState() => _RecBannerState();
+}
+
+class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMixin {
+  late final AnimationController _blink =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _blink.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: RecController.i,
+      builder: (context, _) {
+        final rec = RecController.i;
+        if (!rec.busy) return const SizedBox.shrink();
+        final saving = rec.saving;
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+          decoration: BoxDecoration(
+            color: recRed.withValues(alpha: 0.16),
+            border: Border.all(color: recRed.withValues(alpha: 0.6)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: saving != null
+              ? Row(
+                  children: [
+                    const Icon(Icons.save_alt, color: recRed),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(saving > 0 ? 'Salvataggio… ${(saving * 100).round()}%' : 'Salvataggio…',
+                              style: const TextStyle(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 6),
+                          LinearProgressIndicator(value: saving > 0 ? saving : null, color: recRed),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                )
+              : Row(
+                  children: [
+                    FadeTransition(
+                      opacity: _blink,
+                      child: const Icon(Icons.fiber_manual_record, color: recRed, size: 18),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('REC ${fmtDur(rec.elapsed)}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            fontFeatures: [FontFeature.tabularFigures()])),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${fmtSize(rec.bytes)} · ${rec.station?.name ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
+                      ),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(foregroundColor: recRed),
+                      icon: const Icon(Icons.stop),
+                      label: const Text('Ferma e salva'),
+                      onPressed: rec.stopAndSave,
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+}
+
+
+/// ● accanto al ❤️: grigio = radio spenta, rosso = pronto, ■ = sta registrando.
+class _TileRec extends StatelessWidget {
+  const _TileRec(this.station);
+  final Station station;
+
+  @override
+  Widget build(BuildContext context) {
+    final rec = RecController.i;
+    final p = RadioPlayer.i;
+    if (rec.isRecording(station)) {
+      if (rec.saving != null) {
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: SizedBox(
+              width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: recRed)),
+        );
+      }
+      return IconButton(
+        tooltip: 'Ferma e salva',
+        icon: const Icon(Icons.stop_circle, color: recRed),
+        onPressed: rec.stopAndSave,
+      );
+    }
+    if (rec.isPending(station)) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(
+            width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: recRed)),
+      );
+    }
+    final ready = p.isCurrent(station) && p.isPlaying;
+    return IconButton(
+      tooltip: 'Registra',
+      icon: Icon(Icons.fiber_manual_record,
+          color: ready ? recRed : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+      onPressed: rec.busy ? null : () => rec.recordStation(station),
     );
   }
 }
