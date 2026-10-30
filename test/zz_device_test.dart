@@ -19,14 +19,14 @@ curl -sL -o pro.apk https://github.com/designer1974/devoo-radio/releases/downloa
 curl -sL -o free.apk https://github.com/designer1974/devoo-radio/releases/download/build-18/DevooRadio.apk
 ls -la *.apk
 yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
-tail -3 sdk.log | sed 's/^/RESULT sdk: /' >> result.txt
+tr '\r' '\n' < sdk.log | grep -v '^ *\[' | grep -v '^$' | tail -4 | sed 's/^/RESULT sdk: /' >> result.txt
 ls $SDK/emulator/emulator >> result.txt 2>&1
 echo no | $AM create avd -n t -k "$IMG" --force
 $SDK/emulator/emulator -avd t -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -memory 3072 > emu.log 2>&1 &
 sleep 40
 if ! pgrep -f qemu-system > /dev/null; then
   echo "RESULT emulatore morto" >> result.txt
-  grep -v "^$" emu.log | tail -12 | sed 's/^/RESULT emu: /' >> result.txt
+  tr '\r' '\n' < emu.log | grep -v '^$' | tail -14 | sed 's/^/RESULT emu: /' >> result.txt
   exit 1
 fi
 timeout 400 $ADB wait-for-device
