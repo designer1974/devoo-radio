@@ -12,6 +12,7 @@ import 'recordings_page.dart';
 import 'schedule.dart';
 import 'search_page.dart';
 import 'store.dart';
+import 'update.dart';
 import 'widgets.dart';
 
 void main() {
@@ -82,6 +83,9 @@ class _HomeShellState extends State<HomeShell> {
     super.initState();
     _recMsgs = RecController.i.messages.listen(_snack);
     _life.hashCode; // avvia l'ascolto
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      if (mounted) checkForUpdate(context);
+    });
     Schedules.i.reload();
     _errors = RadioPlayer.i.errors.listen((msg) {
       if (!mounted) return;

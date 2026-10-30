@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'models.dart';
 import 'player.dart';
 import 'recording.dart';
 import 'schedule.dart';
+import 'striped.dart';
 import 'store.dart';
 
 /// Navigazione condivisa: scheda attiva e stazione da mostrare sulla mappa.
@@ -524,6 +527,7 @@ class RecBanner extends StatefulWidget {
 }
 
 class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMixin {
+  DateTime? _saveStart;
   late final AnimationController _blink =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
 
@@ -539,34 +543,42 @@ class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMix
       listenable: RecController.i,
       builder: (context, _) {
         final rec = RecController.i;
-        if (!rec.busy) return const SizedBox.shrink();
+        if (!rec.busy) {
+          _saveStart = null;
+          return const SizedBox.shrink();
+        }
         final saving = rec.saving ?? (rec.extStopping || rec.extSaving ? 0.0 : null);
+        if (saving == null) _saveStart = null;
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+          padding: saving != null ? const EdgeInsets.fromLTRB(12, 7, 8, 7) : const EdgeInsets.fromLTRB(14, 8, 6, 8),
           decoration: BoxDecoration(
             color: recRed.withValues(alpha: 0.16),
             border: Border.all(color: recRed.withValues(alpha: 0.6)),
             borderRadius: BorderRadius.circular(14),
           ),
           child: saving != null
-              ? Row(
-                  children: [
-                    const Icon(Icons.save_alt, color: recRed),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(saving > 0 ? 'Salvataggio… ${(saving * 100).round()}%' : 'Salvataggio…',
-                              style: const TextStyle(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 6),
-                          LinearProgressIndicator(value: saving > 0 ? saving : null, color: recRed),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+              ? AnimatedBuilder(
+                  animation: _blink,
+                  builder: (_, __) {
+                    // il salvataggio dura pochi secondi: avanzamento stimato, 100% quando il file è pronto
+                    _saveStart ??= DateTime.now();
+                    final t = DateTime.now().difference(_saveStart!).inMilliseconds / 1000.0;
+                    final est = 0.96 * (1 - math.exp(-t / 2.2));
+                    final v = saving > 0 ? math.max(saving, est) : est;
+                    return Row(
+                      children: [
+                        const Icon(Icons.check_circle_outline, color: accent, size: 18),
+                        const SizedBox(width: 8),
+                        Text('Salvataggio ${(v * 100).round()}%',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 13, fontFeatures: [FontFeature.tabularFigures()])),
+                        const SizedBox(width: 12),
+                        Expanded(child: StripedBar(value: v, height: 5)),
+                        const SizedBox(width: 8),
+                      ],
+                    );
+                  },
                 )
               : Row(
                   children: [

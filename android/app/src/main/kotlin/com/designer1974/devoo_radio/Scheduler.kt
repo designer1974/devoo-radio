@@ -491,3 +491,18 @@ class ScheduledRecService : Service() {
         super.onDestroy()
     }
 }
+
+/** Risposta del sistema all'installazione dell'aggiornamento: apre la conferma "Installa". */
+class InstallReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999)
+        if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            @Suppress("DEPRECATION")
+            val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
+            confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try { context.startActivity(confirm) } catch (e: Exception) { Log.e("Install", "conferma", e) }
+        } else if (status != android.content.pm.PackageInstaller.STATUS_SUCCESS) {
+            Log.w("Install", "installazione: stato $status ${intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE)}")
+        }
+    }
+}

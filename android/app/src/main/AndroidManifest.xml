@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- aggiornamenti dentro l'app -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- usesCleartextTraffic: molte radio trasmettono ancora in http:// -->
     <application
@@ -60,6 +62,9 @@
             android:foregroundServiceType="dataSync" />
         <receiver
             android:name=".RecAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".InstallReceiver"
             android:exported="false" />
         <receiver
             android:name=".RecBootReceiver"

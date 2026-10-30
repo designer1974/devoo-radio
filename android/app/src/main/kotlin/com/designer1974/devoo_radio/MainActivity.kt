@@ -127,6 +127,11 @@ class MainActivity : AudioServiceActivity() {
                         }
                         result.success(null)
                     }
+                    "is64" -> result.success(Build.SUPPORTED_64_BIT_ABIS.isNotEmpty())
+                    "installApk" -> Thread {
+                        val r = try { installApk(call.argument<String>("path")!!); "ok" } catch (e: Exception) { e.message ?: "errore" }
+                        runOnUiThread { result.success(r) }
+                    }.start()
                     "isHuawei" -> result.success(
                         Build.MANUFACTURER.equals("HUAWEI", true) || Build.MANUFACTURER.equals("HONOR", true)
                     )
@@ -187,6 +192,33 @@ class MainActivity : AudioServiceActivity() {
             } catch (e: Exception) {
                 result.error("REC", e.message ?: "Errore", null)
             }
+        }
+    }
+
+    /**
+     * Aggiornamento: passa l'APK scaricato all'installatore di Android (PackageInstaller).
+     * Il sistema poi mostra la conferma "Installa" con un pulsante normale.
+     */
+    private fun installApk(path: String) {
+        val f = java.io.File(path)
+        val pi = packageManager.packageInstaller
+        val params = android.content.pm.PackageInstaller.SessionParams(
+            android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+        )
+        val id = pi.createSession(params)
+        pi.openSession(id).use { s ->
+            f.inputStream().use { input ->
+                s.openWrite("update.apk", 0, f.length()).use { out ->
+                    input.copyTo(out, 256 * 1024)
+                    s.fsync(out)
+                }
+            }
+            val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= 31) android.app.PendingIntent.FLAG_MUTABLE else 0)
+            val sender = android.app.PendingIntent.getBroadcast(
+                this, id, Intent(this, InstallReceiver::class.java), flags
+            ).intentSender
+            s.commit(sender)
         }
     }
 
