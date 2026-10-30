@@ -9,6 +9,7 @@ import 'player.dart';
 import 'recorder.dart';
 import 'recording.dart';
 import 'recordings_page.dart';
+import 'schedule.dart';
 import 'search_page.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -70,11 +71,18 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   StreamSubscription<String>? _errors;
   StreamSubscription<String>? _recMsgs;
+  // tornando nell'app: aggiorna registrazioni e programmi (possono essere finiti ad app chiusa)
+  late final AppLifecycleListener _life = AppLifecycleListener(onResume: () {
+    Recordings.i.reload();
+    Schedules.i.reload();
+  });
 
   @override
   void initState() {
     super.initState();
     _recMsgs = RecController.i.messages.listen(_snack);
+    _life.hashCode; // avvia l'ascolto
+    Schedules.i.reload();
     _errors = RadioPlayer.i.errors.listen((msg) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -92,6 +100,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    _life.dispose();
     _recMsgs?.cancel();
     _errors?.cancel();
     super.dispose();

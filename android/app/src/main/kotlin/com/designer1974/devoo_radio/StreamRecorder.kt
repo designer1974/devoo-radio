@@ -31,7 +31,10 @@ object StreamRecorder {
         private set
 
     private var thread: Thread? = null
-    private var worker: Thread? = null
+    @Volatile private var worker: Thread? = null
+
+    /** C'è già una registrazione in corso (manuale o programmata). */
+    val busy: Boolean get() = worker != null
     @Volatile private var conn: HttpURLConnection? = null
     private val queue = LinkedBlockingQueue<File>()
     @Volatile private var encoded = false

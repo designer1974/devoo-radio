@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 import 'player.dart';
 import 'recording.dart';
+import 'schedule.dart';
 import 'store.dart';
 
 /// Navigazione condivisa: scheda attiva e stazione da mostrare sulla mappa.
@@ -135,9 +136,32 @@ class StationTile extends StatelessWidget {
                     color: fav ? Colors.pinkAccent : null),
                 onPressed: () => Library.i.toggleFavorite(station),
               ),
+              SizedBox(
+                width: 28,
+                child: PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  tooltip: 'Altro',
+                  onSelected: (v) {
+                    if (v == 'sched') openScheduleEditor(context, station: station);
+                    if (v == 'map') showOnMap(context, station);
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'sched',
+                        child: ListTile(
+                            leading: Icon(Icons.alarm_add, color: recRed),
+                            title: Text('Programma registrazione'))),
+                    if (station.hasGeo)
+                      const PopupMenuItem(
+                          value: 'map',
+                          child: ListTile(leading: Icon(Icons.public), title: Text('Mostra sulla mappa'))),
+                  ],
+                ),
+              ),
             ],
           ),
           onTap: () => active && p.isPlaying ? openPlayer(context) : p.play(station),
+          onLongPress: () => openScheduleEditor(context, station: station),
         );
       },
     );
@@ -383,14 +407,27 @@ class PlayerSheet extends StatelessWidget {
                     style: const TextStyle(color: accent),
                   ),
                 ),
-              if (s.hasGeo) ...[
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  icon: const Icon(Icons.public),
-                  label: const Text('Mostra sulla mappa'),
-                  onPressed: () => showOnMap(context, s),
-                ),
-              ],
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.center,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.alarm_add),
+                    label: const Text('Programma'),
+                    onPressed: () {
+                      final nav = Navigator.of(context);
+                      nav.pop();
+                      nav.push(MaterialPageRoute(builder: (_) => ScheduleEditor(station: s)));
+                    },
+                  ),
+                  if (s.hasGeo)
+                    TextButton.icon(
+                      icon: const Icon(Icons.public),
+                      label: const Text('Mostra sulla mappa'),
+                      onPressed: () => showOnMap(context, s),
+                    ),
+                ],
+              ),
             ],
           ),
         );

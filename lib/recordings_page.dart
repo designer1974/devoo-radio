@@ -8,6 +8,7 @@ import 'editor.dart';
 import 'player.dart';
 import 'recorder.dart';
 import 'recording.dart';
+import 'schedule.dart';
 import 'widgets.dart';
 
 class RecordingsPage extends StatefulWidget {
@@ -26,6 +27,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
   void initState() {
     super.initState();
     Recordings.i.reload();
+    Schedules.i.reload();
     _done = _audio.onPlayerComplete.listen((_) {
       if (mounted) setState(() => _playing = null);
     });
@@ -208,6 +210,11 @@ class _RecordingsPageState extends State<RecordingsPage> {
                           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22)),
                     ),
                     IconButton(
+                      tooltip: 'Programma registrazione',
+                      icon: const Icon(Icons.alarm_add, color: recRed),
+                      onPressed: () => openScheduleEditor(context),
+                    ),
+                    IconButton(
                       tooltip: 'Qualità',
                       icon: const Icon(Icons.tune),
                       onPressed: _settings,
@@ -215,6 +222,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
                   ],
                 ),
               ),
+              const ScheduleList(),
               if (flags.isNotEmpty)
                 SizedBox(
                   height: 48,

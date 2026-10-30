@@ -73,6 +73,40 @@ class MainActivity : AudioServiceActivity() {
                         val l = try { StreamRecorder.recover(call.argument<String>("dir")!!) } catch (e: Exception) { emptyList() }
                         runOnUiThread { result.success(l) }
                     }.start()
+                    "schedAdd" -> {
+                        val m = call.arguments as Map<*, *>
+                        val j = org.json.JSONObject()
+                        for ((k, v) in m) j.put(k.toString(), v)
+                        Scheduler.add(this, j)
+                        result.success(null)
+                    }
+                    "schedList" -> {
+                        val a = Scheduler.all(this)
+                        result.success((0 until a.length()).map { i ->
+                            val o = a.getJSONObject(i)
+                            o.keys().asSequence().associateWith { k -> o.get(k) }
+                        })
+                    }
+                    "schedRemove" -> {
+                        val id = call.argument<String>("id")!!
+                        if (Scheduler.get(this, id)?.optBoolean("running") == true) {
+                            try {
+                                startService(Intent(this, ScheduledRecService::class.java).setAction(ScheduledRecService.ACTION_STOP))
+                            } catch (_: Exception) {}
+                        }
+                        Scheduler.remove(this, id)
+                        result.success(null)
+                    }
+                    "schedExactOk" -> result.success(Scheduler.exactAllowed(this))
+                    "schedExactSettings" -> {
+                        if (Build.VERSION.SDK_INT >= 31) {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                    android.net.Uri.parse("package:$packageName")))
+                            } catch (_: Exception) {}
+                        }
+                        result.success(null)
+                    }
                     "duration" -> {
                         val path = call.argument<String>("path")!!
                         Thread {
