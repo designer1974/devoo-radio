@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -198,25 +199,89 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     if (d != null) setState(() => _start = DateTime(d.year, d.month, d.day, _start.hour, _start.minute));
   }
 
-  Future<void> _pickStart() async {
-    final t = await showTimePicker(
+  /// Rotelle grandi per l'ora (più chiare del quadrante), con pulsante OK ben visibile.
+  Future<TimeOfDay?> _wheel(String title, TimeOfDay initial) {
+    var picked = initial;
+    return showModalBottomSheet<TimeOfDay>(
       context: context,
-      initialTime: TimeOfDay(hour: _start.hour, minute: _start.minute),
-      helpText: 'Inizio registrazione',
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            SizedBox(
+              height: 220,
+              child: CupertinoTheme(
+                data: const CupertinoThemeData(
+                  brightness: Brightness.dark,
+                  textTheme: CupertinoTextThemeData(
+                    dateTimePickerTextStyle: TextStyle(fontSize: 30, color: Colors.white),
+                  ),
+                ),
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  use24hFormat: true,
+                  initialDateTime: DateTime(2000, 1, 1, initial.hour, initial.minute),
+                  onDateTimeChanged: (d) => picked = TimeOfDay(hour: d.hour, minute: d.minute),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, picked),
+                  child: const Text('OK', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
-    if (t == null) return;
-    setState(() {
-      _start = DateTime(_start.year, _start.month, _start.day, t.hour, t.minute);
-      // orario già passato oggi → domani
-      if (_start.isBefore(DateTime.now().subtract(const Duration(minutes: 1)))) {
-        _start = _start.add(const Duration(days: 1));
-      }
-    });
   }
 
+  void _setStart(TimeOfDay t) {
+    final now = DateTime.now();
+    var st = DateTime(_start.year, _start.month, _start.day, t.hour, t.minute);
+    if (st.isBefore(now)) {
+      // ora appena passata (entro 15 minuti) = parte subito; altrimenti domani
+      st = now.difference(st).inMinutes <= 15 && _isToday(st) ? now : st.add(const Duration(days: 1));
+    }
+    _start = st;
+  }
+
+  bool _isToday(DateTime d) {
+    final n = DateTime.now();
+    return d.year == n.year && d.month == n.month && d.day == n.day;
+  }
+
+  bool get _startsNow => !_start.isAfter(DateTime.now().add(const Duration(seconds: 30)));
+
+  Future<void> _pickStart() async {
+    final t = await _wheel('Inizio registrazione', TimeOfDay(hour: _start.hour, minute: _start.minute));
+    if (t == null || !mounted) return;
+    setState(() => _setStart(t));
+  }
+
+  void _startNow() => setState(() => _start = DateTime.now());
+
   Future<void> _pickEnd() async {
-    final t = await showTimePicker(context: context, initialTime: _endTime, helpText: 'Fine registrazione');
-    if (t != null) setState(() => _endTime = t);
+    final t = await _wheel('Fine registrazione', _endTime);
+    if (t != null && mounted) setState(() => _endTime = t);
+  }
+
+  /// Scorciatoie per la durata.
+  void _setLength(Duration d) {
+    final e = _start.add(d);
+    setState(() => _endTime = TimeOfDay(hour: e.hour, minute: e.minute));
   }
 
   Future<void> _save() async {
@@ -242,10 +307,13 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
         );
         if (go == true) await Schedules.i.openExactSettings();
       }
-      await Schedules.i.add(s, _start, _end, _daily);
+      final st = _startsNow ? DateTime.now() : _start;
+      await Schedules.i.add(s, st, _end, _daily);
       messenger.showSnackBar(SnackBar(
         behavior: SnackBarBehavior.floating,
-        content: Text('Programmata: ${s.name}, ${dayLabel(_start)} ${hhmm(_start)} → ${hhmm(_end)}'),
+        content: Text(_startsNow
+            ? 'Registrazione iniziata: ${s.name}, fino alle ${hhmm(_end)}'
+            : 'Programmata: ${s.name}, ${dayLabel(_start)} ${hhmm(_start)} → ${hhmm(_end)}'),
       ));
       nav.pop();
     } catch (_) {
@@ -319,20 +387,66 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
           ListTile(
             leading: const Icon(Icons.play_circle_outline, color: recRed),
             title: const Text('Inizio'),
-            trailing: Text(hhmm(_start), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+            subtitle: _startsNow ? const Text('subito, appena premi Programma') : const Text('tocca per cambiare'),
+            trailing: Text(hhmm(_start), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
             onTap: _pickStart,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(68, 0, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ActionChip(
+                avatar: const Icon(Icons.bolt, size: 18),
+                label: const Text('Inizia adesso'),
+                onPressed: _startNow,
+              ),
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.stop_circle_outlined),
             title: const Text('Fine'),
-            subtitle: _end.day != _start.day ? const Text('il giorno dopo') : null,
-            trailing: Text(hhmm(_end), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+            subtitle: Text(_end.day != _start.day ? 'il giorno dopo · tocca per cambiare' : 'tocca per cambiare'),
+            trailing: Text(hhmm(_end), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
             onTap: _pickEnd,
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text('Durata: ${fmtLen(len)} · circa ${(len.inMinutes / 60 * _mbPerHour()).toStringAsFixed(0)} MB',
-                style: TextStyle(color: scheme.onSurfaceVariant)),
+            padding: const EdgeInsets.fromLTRB(68, 0, 16, 4),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final (l, d) in const [
+                  ('30 min', Duration(minutes: 30)),
+                  ('1 ora', Duration(hours: 1)),
+                  ('2 ore', Duration(hours: 2)),
+                  ('3 ore', Duration(hours: 3)),
+                  ('4 ore', Duration(hours: 4)),
+                ])
+                  ActionChip(label: Text(l), onPressed: () => _setLength(d)),
+              ],
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _startsNow
+                      ? 'Registra da adesso fino alle ${hhmm(_end)}${_end.day != _start.day ? ' di domani' : ''}'
+                      : 'Registra ${dayLabel(_start)} dalle ${hhmm(_start)} alle ${hhmm(_end)}${_end.day != _start.day ? ' (giorno dopo)' : ''}',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text('Durata ${fmtLen(len)} · circa ${(len.inMinutes / 60 * _mbPerHour()).toStringAsFixed(0)} MB',
+                    style: TextStyle(color: scheme.onSurfaceVariant)),
+              ],
+            ),
           ),
           SwitchListTile(
             secondary: const Icon(Icons.repeat),
@@ -345,9 +459,14 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: FilledButton.icon(
               style: FilledButton.styleFrom(
-                  backgroundColor: recRed, padding: const EdgeInsets.symmetric(vertical: 16)),
+                  backgroundColor: recRed,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: recRed.withValues(alpha: 0.35),
+                  disabledForegroundColor: Colors.white70,
+                  padding: const EdgeInsets.symmetric(vertical: 16)),
               icon: const Icon(Icons.alarm_add),
-              label: Text(_saving ? 'Salvo…' : 'Programma'),
+              label: Text(_saving ? 'Salvo…' : (_startsNow ? 'Inizia a registrare' : 'Programma alle ${hhmm(_start)}'),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
               onPressed: s == null || _saving ? null : _save,
             ),
           ),
