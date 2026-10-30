@@ -27,7 +27,15 @@ class RadioPlayer extends ChangeNotifier {
   }
   static final i = RadioPlayer._();
 
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player = AudioPlayer(
+    // parte appena ha 0,6 s di audio invece di aspettare 2,5 s
+    audioLoadConfiguration: const AudioLoadConfiguration(
+      androidLoadControl: AndroidLoadControl(
+        bufferForPlaybackDuration: Duration(milliseconds: 600),
+        bufferForPlaybackAfterRebufferDuration: Duration(seconds: 2),
+      ),
+    ),
+  );
   final _errors = StreamController<String>.broadcast();
   Stream<String> get errors => _errors.stream;
 

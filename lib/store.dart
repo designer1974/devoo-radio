@@ -45,7 +45,18 @@ class StationStore extends ChangeNotifier {
     } catch (_) {
       // cache rovinata: si riscarica
     }
-    if (!fresh) unawaited(refresh());
+    if (fresh) return;
+    if (stations.isEmpty) {
+      unawaited(refresh());
+      return;
+    }
+    // c'e' gia' la cache: si apre subito e si aggiorna in silenzio al massimo una volta al giorno
+    try {
+      final t = File('${(await _file()).path}.try');
+      if (await t.exists() && DateTime.now().difference(await t.lastModified()) < const Duration(hours: 24)) return;
+      await t.writeAsString('1');
+    } catch (_) {}
+    Future<void>.delayed(const Duration(seconds: 8), refresh);
   }
 
   void _set(List<Station> list) {
