@@ -22,6 +22,12 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Se l'app si chiude da sola, il motivo viene scritto in un file e mostrato alla prossima apertura
+        try {
+            val dir = filesDir
+            val prev = Thread.getDefaultUncaughtExceptionHandler()
+            if (prev !is CrashCatcher) Thread.setDefaultUncaughtExceptionHandler(CrashCatcher(dir, prev))
+        } catch (_: Exception) {}
         super.onCreate(savedInstanceState)
         try {
             val f = IntentFilter(Intent.ACTION_SHUTDOWN)
@@ -126,6 +132,12 @@ class MainActivity : AudioServiceActivity() {
                             }
                         }
                         result.success(null)
+                    }
+                    "lastCrash" -> {
+                        val f = java.io.File(filesDir, "crash.txt")
+                        val t = if (f.exists()) f.readText() else null
+                        f.delete()
+                        result.success(t)
                     }
                     "is64" -> result.success(Build.SUPPORTED_64_BIT_ABIS.isNotEmpty())
                     "appInfo" -> {
@@ -241,5 +253,20 @@ class MainActivity : AudioServiceActivity() {
                 runOnUiThread { result.error("CODEC", e.message ?: "Errore audio", null) }
             }
         }.start()
+    }
+}
+
+class CrashCatcher(private val dir: java.io.File, private val prev: Thread.UncaughtExceptionHandler?) :
+    Thread.UncaughtExceptionHandler {
+    override fun uncaughtException(t: Thread, e: Throwable) {
+        try {
+            val sw = java.io.StringWriter()
+            e.printStackTrace(java.io.PrintWriter(sw))
+            java.io.File(dir, "crash.txt").writeText(
+                "Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}\nThread: ${t.name}\n" +
+                    sw.toString().take(6000)
+            )
+        } catch (_: Throwable) {}
+        prev?.uncaughtException(t, e)
     }
 }

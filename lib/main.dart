@@ -18,13 +18,18 @@ import 'store.dart';
 import 'update.dart';
 import 'widgets.dart';
 import 'i18n.dart';
+import 'diag.dart';
 
 void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     // Un errore in un widget non deve mai chiudere l'app
-    FlutterError.onError = (d) => FlutterError.presentError(d);
+    FlutterError.onError = (d) {
+      FlutterError.presentError(d);
+      Diag.log(d.exception, d.stack);
+    };
     ErrorWidget.builder = (_) => const SizedBox.shrink();
+    await _safe(Diag.init);
     try {
       await JustAudioBackground.init(
         androidNotificationChannelId: 'com.designer1974.devoo_radio.audio',
@@ -34,15 +39,24 @@ void main() {
     } catch (e) {
       debugPrint('Audio in background non disponibile: $e');
     }
-    await Lang.i.init();
-    await Pro.i.init();
-    await Library.i.init();
-    await RecSettings.i.load();
+    // ogni passo ha un limite di tempo: l'app deve aprirsi comunque
+    await _safe(Lang.i.init);
+    await _safe(Pro.i.init);
+    await _safe(Library.i.init);
+    await _safe(RecSettings.i.load);
     runApp(const DevooRadioApp());
     unawaited(StationStore.i.init());
     unawaited(initAds());
     unawaited(RecController.i.recoverInterrupted());
-  }, (error, stack) => debugPrint('Errore non gestito: $error'));
+  }, (error, stack) => Diag.log(error, stack));
+}
+
+Future<void> _safe(Future<void> Function() f) async {
+  try {
+    await f().timeout(const Duration(seconds: 4));
+  } catch (e, s) {
+    Diag.log(e, s);
+  }
 }
 
 class DevooRadioApp extends StatelessWidget {
@@ -102,6 +116,9 @@ class _HomeShellState extends State<HomeShell> {
     super.initState();
     _recMsgs = RecController.i.messages.listen(_snack);
     _life.hashCode; // avvia l'ascolto
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Diag.showIfAny(context);
+    });
     Future<void>.delayed(const Duration(seconds: 4), () {
       if (mounted && Pro.i.isProPackage) checkForUpdate(context); // solo la versione GitHub
     });
