@@ -128,6 +128,9 @@ class MainActivity : AudioServiceActivity() {
                         result.success(null)
                     }
                     "is64" -> result.success(Build.SUPPORTED_64_BIT_ABIS.isNotEmpty())
+                    "installedAt" -> result.success(
+                        try { packageManager.getPackageInfo(packageName, 0).lastUpdateTime } catch (_: Exception) { 0L }
+                    )
                     "installApk" -> Thread {
                         val r = try { installApk(call.argument<String>("path")!!); "ok" } catch (e: Exception) { e.message ?: "errore" }
                         runOnUiThread { result.success(r) }

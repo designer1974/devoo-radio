@@ -11,8 +11,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'striped.dart';
 import 'widgets.dart';
 
-/// Numero della build (lo mette GitHub Actions al momento della compilazione).
-const kBuild = int.fromEnvironment('BUILD', defaultValue: 0);
 const _repo = 'designer1974/devoo-radio';
 const _ch = MethodChannel('rr/recorder');
 
@@ -25,8 +23,11 @@ class UpdateInfo {
 
 /// Cerca su GitHub una versione Pro più nuova di quella installata.
 Future<UpdateInfo?> findUpdate() async {
-  if (kBuild == 0) return null;
   try {
+    // versione installata: quando è stata installata/aggiornata su questo telefono
+    final installedMs = (await _ch.invokeMethod<num>('installedAt'))?.toInt() ?? 0;
+    if (installedMs <= 0) return null;
+    final installed = DateTime.fromMillisecondsSinceEpoch(installedMs);
     final r = await http.get(Uri.https('api.github.com', '/repos/$_repo/releases', {'per_page': '15'}),
         headers: {'Accept': 'application/vnd.github+json', 'User-Agent': 'DevooRadio'}).timeout(const Duration(seconds: 15));
     if (r.statusCode != 200) return null;
@@ -43,7 +44,10 @@ Future<UpdateInfo?> findUpdate() async {
       final tag = '${rel['tag_name']}';
       if (!tag.startsWith('pro-build-')) continue;
       final n = int.tryParse(tag.substring('pro-build-'.length)) ?? 0;
-      if (n <= kBuild || (best != null && n <= best.build)) continue;
+      final pub = DateTime.tryParse('${rel['published_at']}');
+      // più nuova = pubblicata dopo l'installazione di questa versione
+      if (pub == null || !pub.isAfter(installed.add(const Duration(minutes: 2)))) continue;
+      if (best != null && n <= best.build) continue;
       for (final a in (rel['assets'] as List? ?? const [])) {
         if (a is Map && a['name'] == want) {
           best = UpdateInfo(n, '${a['browser_download_url']}', (a['size'] as num?)?.toInt() ?? 0);
