@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -169,36 +168,33 @@ class ScheduleEditor extends StatefulWidget {
 
 class _ScheduleEditorState extends State<ScheduleEditor> {
   Station? _station;
-  late DateTime _start;
-  late TimeOfDay _endTime;
+  int _day = 0; // 0 = oggi, 1 = domani…
+  int? _startMin; // minuti dalla mezzanotte; null = adesso
+  int _durMin = 60;
   bool _daily = false;
   bool _saving = false;
-  bool _batteryOk = true;
-  bool _huawei = false;
 
   final _q = TextEditingController();
   List<Station>? _results;
   bool _searching = false;
   int _seq = 0;
 
+  static const _weekdays = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+
   @override
   void initState() {
     super.initState();
     _station = widget.station;
+    // proposta: il prossimo quarto d'ora
     final now = DateTime.now();
-    _start = DateTime(now.year, now.month, now.day, now.hour + 1);
-    final e = _start.add(const Duration(hours: 1));
-    _endTime = TimeOfDay(hour: e.hour, minute: e.minute);
-    _checkPhone();
-  }
-
-  Future<void> _checkPhone() async {
-    final b = await Schedules.i.batteryOk();
-    final h = await Schedules.i.isHuawei();
-    if (mounted) setState(() {
-      _batteryOk = b;
-      _huawei = h;
-    });
+    final m = now.hour * 60 + now.minute;
+    final next = ((m ~/ 15) + 1) * 15;
+    if (next >= 24 * 60) {
+      _day = 1;
+      _startMin = next - 24 * 60;
+    } else {
+      _startMin = next;
+    }
   }
 
   @override
@@ -207,11 +203,50 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     super.dispose();
   }
 
-  /// La fine è sempre dopo l'inizio: se l'ora è minore, è il giorno dopo (es. 23:00 → 03:00).
-  DateTime get _end {
-    var e = DateTime(_start.year, _start.month, _start.day, _endTime.hour, _endTime.minute);
-    if (!e.isAfter(_start)) e = e.add(const Duration(days: 1));
-    return e;
+  DateTime _dayBase(int d) {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day).add(Duration(days: d));
+  }
+
+  DateTime get _start {
+    final m = _startMin;
+    if (m == null) return DateTime.now();
+    final b = _dayBase(_day);
+    return DateTime(b.year, b.month, b.day, m ~/ 60, m % 60);
+  }
+
+  DateTime get _end => _start.add(Duration(minutes: _durMin));
+
+  String _hm(int m) => '${two(m ~/ 60)}:${two(m % 60)}';
+
+  String _dayName(int d) {
+    if (d == 0) return 'Oggi';
+    if (d == 1) return 'Domani';
+    final b = _dayBase(d);
+    final w = _weekdays[b.weekday - 1];
+    return '${w[0].toUpperCase()}${w.substring(1)} ${b.day}';
+  }
+
+  /// Orari possibili di inizio (ogni 15 minuti); oggi solo quelli futuri, più «Adesso».
+  List<int?> _startOptions() {
+    final now = DateTime.now();
+    final nowMin = now.hour * 60 + now.minute;
+    final list = <int?>[];
+    if (_day == 0) list.add(null);
+    for (var m = 0; m < 24 * 60; m += 15) {
+      if (_day == 0 && m <= nowMin) continue;
+      list.add(m);
+    }
+    return list;
+  }
+
+  void _setDay(int d) {
+    setState(() {
+      _day = d;
+      final opts = _startOptions();
+      if (!opts.contains(_startMin)) _startMin = opts.firstWhere((x) => x != null, orElse: () => null);
+      if (_day != 0 && _startMin == null) _startMin = 0;
+    });
   }
 
   Future<void> _search(String text) async {
@@ -238,138 +273,26 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     }
   }
 
-  Future<void> _pickDay() async {
-    final now = DateTime.now();
-    final d = await showDatePicker(
-      context: context,
-      initialDate: _start.isBefore(now) ? now : _start,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: now.add(const Duration(days: 60)),
-    );
-    if (d != null) setState(() => _start = DateTime(d.year, d.month, d.day, _start.hour, _start.minute));
-  }
-
-  /// Rotelle grandi per l'ora (più chiare del quadrante), con pulsante OK ben visibile.
-  Future<TimeOfDay?> _wheel(String title, TimeOfDay initial) {
-    var picked = initial;
-    return showModalBottomSheet<TimeOfDay>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            SizedBox(
-              height: 220,
-              child: CupertinoTheme(
-                data: const CupertinoThemeData(
-                  brightness: Brightness.dark,
-                  textTheme: CupertinoTextThemeData(
-                    dateTimePickerTextStyle: TextStyle(fontSize: 30, color: Colors.white),
-                  ),
-                ),
-                child: CupertinoDatePicker(
-                  mode: CupertinoDatePickerMode.time,
-                  use24hFormat: true,
-                  initialDateTime: DateTime(2000, 1, 1, initial.hour, initial.minute),
-                  onDateTimeChanged: (d) => picked = TimeOfDay(hour: d.hour, minute: d.minute),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: accent,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: () => Navigator.pop(ctx, picked),
-                  child: const Text('OK', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _setStart(TimeOfDay t) {
-    final now = DateTime.now();
-    var st = DateTime(_start.year, _start.month, _start.day, t.hour, t.minute);
-    if (st.isBefore(now)) {
-      // ora appena passata (entro 15 minuti) = parte subito; altrimenti domani
-      st = now.difference(st).inMinutes <= 15 && _isToday(st) ? now : st.add(const Duration(days: 1));
-    }
-    _start = st;
-  }
-
-  bool _isToday(DateTime d) {
-    final n = DateTime.now();
-    return d.year == n.year && d.month == n.month && d.day == n.day;
-  }
-
-  bool get _startsNow => !_start.isAfter(DateTime.now().add(const Duration(seconds: 30)));
-
-  Future<void> _pickStart() async {
-    final t = await _wheel('Inizio registrazione', TimeOfDay(hour: _start.hour, minute: _start.minute));
-    if (t == null || !mounted) return;
-    setState(() => _setStart(t));
-  }
-
-  void _startNow() => setState(() => _start = DateTime.now());
-
-  Future<void> _pickEnd() async {
-    final t = await _wheel('Fine registrazione', _endTime);
-    if (t != null && mounted) setState(() => _endTime = t);
-  }
-
-  /// Scorciatoie per la durata.
-  void _setLength(Duration d) {
-    final e = _start.add(d);
-    setState(() => _endTime = TimeOfDay(hour: e.hour, minute: e.minute));
-  }
-
   Future<void> _save() async {
     final s = _station;
     if (s == null || _saving) return;
-    if (_end.difference(_start).inMinutes < 1) return;
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
     try {
-      if (!await Schedules.i.exactOk() && mounted) {
-        final go = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Permesso per l\'orario esatto'),
-            content: const Text(
-                'Per partire esattamente all\'ora scelta, Android chiede di attivare «Sveglie e promemoria» per Devoo Radio Pro.'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Dopo')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Attiva')),
-            ],
-          ),
-        );
-        if (go == true) await Schedules.i.openExactSettings();
-      }
+      if (!await Schedules.i.exactOk() && mounted) await Schedules.i.openExactSettings();
       if (!await Schedules.i.batteryOk()) await Schedules.i.batteryAsk();
-      final st = _startsNow ? DateTime.now() : _start;
-      // niente doppioni: si chiede se sostituire quello che c'è già in quell'orario
+      final st = _start;
+      final en = _end;
       await Schedules.i.reload();
-      final clash = Schedules.i.overlapping(st, _end);
+      final clash = Schedules.i.overlapping(st, en);
       if (clash.isNotEmpty && mounted) {
         final c = clash.first;
         final replace = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Orario già occupato'),
-            content: Text('C\'è già «${c.name}» ${c.running ? '(sta registrando)' : ''} '
-                'dalle ${hhmm(c.start)} alle ${hhmm(c.end)}.\nSi registra una radio alla volta.'),
+            content: Text('C\'è già «${c.name}» dalle ${hhmm(c.start)} alle ${hhmm(c.end)}.\nSi registra una radio alla volta.'),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
               FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sostituisci')),
@@ -385,12 +308,12 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
         }
         if (clash.any((x) => x.running)) await Future<void>.delayed(const Duration(seconds: 3));
       }
-      await Schedules.i.add(s, st, _end, _daily);
+      await Schedules.i.add(s, _startMin == null ? DateTime.now() : st, en, _daily);
       messenger.showSnackBar(SnackBar(
         behavior: SnackBarBehavior.floating,
-        content: Text(_startsNow
-            ? 'Registrazione iniziata: ${s.name}, fino alle ${hhmm(_end)}'
-            : 'Programmata: ${s.name}, ${dayLabel(_start)} ${hhmm(_start)} → ${hhmm(_end)}'),
+        content: Text(_startMin == null
+            ? 'Registrazione iniziata: ${s.name}, fino alle ${hhmm(en)}'
+            : 'Programmata: ${s.name}, ${dayLabel(st)} ${hhmm(st)} → ${hhmm(en)}'),
       ));
       nav.pop();
     } catch (_) {
@@ -401,48 +324,76 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     }
   }
 
+  Widget _box<T>({
+    required String label,
+    required T value,
+    required List<T> items,
+    required String Function(T) text,
+    required ValueChanged<T> onChanged,
+  }) {
+    return DropdownButtonFormField<T>(
+      key: ValueKey('$label|$value|${items.length}'), // si aggiorna quando cambia il valore
+      initialValue: value,
+      isExpanded: true,
+      menuMaxHeight: 360,
+      borderRadius: BorderRadius.circular(12),
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        isDense: true,
+        contentPadding: const EdgeInsets.fromLTRB(12, 14, 6, 14),
+      ),
+      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white),
+      items: [for (final it in items) DropdownMenuItem<T>(value: it, child: Text(text(it), overflow: TextOverflow.ellipsis))],
+      onChanged: (v) {
+        if (v != null || null is T) onChanged(v as T);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final s = _station;
-    final len = _end.difference(_start);
+    final startOpts = _startOptions();
+    if (!startOpts.contains(_startMin)) _startMin = startOpts.isEmpty ? null : startOpts.first;
+    final st = _start;
+    const durs = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480, 600, 720];
+    final mb = _durMin / 60 * RecSettings.i.quality.bitrate / 8 * 3600 / 1000000;
+    final en = _end;
+    final nextDay = en.day != st.day;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Programma registrazione')),
-      bottomNavigationBar: const PlayerBar(),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text('Radio', style: TextStyle(fontWeight: FontWeight.w800)),
-          ),
           if (s != null)
-            ListTile(
-              leading: StationLogo(s),
-              title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Text('${s.flag} ${s.place}'),
-              trailing: TextButton(
-                onPressed: () => setState(() => _station = null),
-                child: const Text('Cambia'),
+            Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                leading: StationLogo(s, size: 44),
+                title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text('${s.flag} ${s.place}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: TextButton(onPressed: () => setState(() => _station = null), child: const Text('Cambia')),
               ),
             )
           else ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: TextField(
-                controller: _q,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'Scrivi il nome, es. Fox News',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: _search,
+            TextField(
+              controller: _q,
+              autofocus: true,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Scrivi la radio, es. Fox News',
+                border: OutlineInputBorder(),
               ),
+              onChanged: _search,
             ),
             if (_searching) const LinearProgressIndicator(minHeight: 2),
             for (final r in (_results ?? const <Station>[]).take(30))
               ListTile(
+                contentPadding: EdgeInsets.zero,
                 leading: StationLogo(r, size: 40),
                 title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text('${r.flag} ${r.place}', maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -455,160 +406,95 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
             if (_results != null && _results!.isEmpty && !_searching)
               const Padding(padding: EdgeInsets.all(16), child: Text('Nessuna radio trovata')),
           ],
-          const Divider(height: 28),
-          ListTile(
-            leading: const Icon(Icons.calendar_today),
-            title: const Text('Giorno'),
-            trailing: Text(dayLabel(_start), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            onTap: _pickDay,
+          const SizedBox(height: 18),
+          _box<int>(
+            label: 'Giorno',
+            value: _day,
+            items: List.generate(7, (i) => i),
+            text: _dayName,
+            onChanged: _setDay,
           ),
-          ListTile(
-            leading: const Icon(Icons.play_circle_outline, color: recRed),
-            title: const Text('Inizio'),
-            subtitle: _startsNow ? const Text('subito, appena premi Programma') : const Text('tocca per cambiare'),
-            trailing: Text(hhmm(_start), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
-            onTap: _pickStart,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(68, 0, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: ActionChip(
-                avatar: const Icon(Icons.bolt, size: 18),
-                label: const Text('Inizia adesso'),
-                onPressed: _startNow,
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.stop_circle_outlined),
-            title: const Text('Fine'),
-            subtitle: Text(_end.day != _start.day ? 'il giorno dopo · tocca per cambiare' : 'tocca per cambiare'),
-            trailing: Text(hhmm(_end), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
-            onTap: _pickEnd,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(68, 0, 16, 4),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                for (final (l, d) in const [
-                  ('30 min', Duration(minutes: 30)),
-                  ('1 ora', Duration(hours: 1)),
-                  ('2 ore', Duration(hours: 2)),
-                  ('3 ore', Duration(hours: 3)),
-                  ('4 ore', Duration(hours: 4)),
-                ])
-                  ActionChip(label: Text(l), onPressed: () => _setLength(d)),
-              ],
-            ),
-          ),
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _startsNow
-                      ? 'Registra da adesso fino alle ${hhmm(_end)}${_end.day != _start.day ? ' di domani' : ''}'
-                      : 'Registra ${dayLabel(_start)} dalle ${hhmm(_start)} alle ${hhmm(_end)}${_end.day != _start.day ? ' (giorno dopo)' : ''}',
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _box<int?>(
+                  label: 'Inizio',
+                  value: _startMin,
+                  items: startOpts,
+                  text: (m) => m == null ? 'Adesso' : _hm(m),
+                  onChanged: (m) => setState(() => _startMin = m),
                 ),
-                const SizedBox(height: 4),
-                Text('Durata ${fmtLen(len)} · circa ${(len.inMinutes / 60 * _mbPerHour()).toStringAsFixed(0)} MB',
-                    style: TextStyle(color: scheme.onSurfaceVariant)),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _box<int>(
+                  label: 'Fine',
+                  value: _durMin,
+                  items: durs,
+                  text: (d) {
+                    final e = st.add(Duration(minutes: d));
+                    final h = d ~/ 60, m = d % 60;
+                    final len = h == 0 ? '$m min' : (m == 0 ? '$h h' : '$h h $m');
+                    return '${hhmm(e)}  ($len)';
+                  },
+                  onChanged: (d) => setState(() => _durMin = d),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 6),
           SwitchListTile(
-            secondary: const Icon(Icons.repeat),
-            title: const Text('Ogni giorno'),
-            subtitle: const Text('Registra alla stessa ora tutti i giorni'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Ogni giorno', style: TextStyle(fontSize: 16)),
             value: _daily,
             onChanged: (v) => setState(() => _daily = v),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                  backgroundColor: recRed,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: recRed.withValues(alpha: 0.35),
-                  disabledForegroundColor: Colors.white70,
-                  padding: const EdgeInsets.symmetric(vertical: 16)),
-              icon: const Icon(Icons.alarm_add),
-              label: Text(_saving ? 'Salvo…' : (_startsNow ? 'Inizia a registrare' : 'Programma alle ${hhmm(_start)}'),
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-              onPressed: s == null || _saving ? null : _save,
-            ),
-          ),
-          Card(
-            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Parte da sola, anche con l\'app chiusa',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  Text(
-                    'All\'ora di inizio Android avvia la registrazione da solo: non serve aprire l\'app né accendere la radio. '
-                    'Finché c\'è un programma in attesa vedi la notifica «⏰ pronta a registrare»: lasciala, è quella che tiene sveglia l\'app.',
-                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 10),
-                  if (!_batteryOk)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.battery_alert, color: recRed),
-                      title: const Text('Il risparmio batteria può bloccarla'),
-                      subtitle: const Text('Tocca e scegli «Consenti»'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () async {
-                        await Schedules.i.batteryAsk();
-                        await Future<void>.delayed(const Duration(seconds: 2));
-                        _checkPhone();
-                      },
-                    )
-                  else
-                    const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.battery_full, color: accent),
-                      title: Text('Risparmio batteria: a posto'),
-                    ),
-                  if (_huawei) ...[
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.phone_android, color: recRed),
-                      title: const Text('Huawei: consenti l\'avvio automatico'),
-                      subtitle: const Text(
-                          'Si apre «Avvio app»: trova Devoo Radio Pro, spegni «Gestisci automaticamente» e attiva tutte e 3 le voci'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: Schedules.i.openAutostart,
-                    ),
-                    Text(
-                      'Consiglio: nelle app recenti trascina giù la scheda di Devoo Radio Pro per bloccarla con il lucchetto 🔒, '
-                      'così «Pulisci tutto» non la chiude.',
-                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+          Text(
+            '${_startMin == null ? 'Da adesso' : '${_dayName(_day)} dalle ${hhmm(st)}'} alle ${hhmm(en)}'
+            '${nextDay ? ' del giorno dopo' : ''} · circa ${mb.toStringAsFixed(0)} MB',
+            style: TextStyle(color: scheme.onSurfaceVariant),
           ),
         ],
       ),
+      // pulsante sempre visibile, senza scorrere
+      bottomNavigationBar: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: recRed,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: recRed.withValues(alpha: 0.35),
+                    disabledForegroundColor: Colors.white70,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  icon: Icon(_startMin == null ? Icons.fiber_manual_record : Icons.alarm_add),
+                  label: Text(
+                    s == null
+                        ? 'Scegli prima la radio'
+                        : _saving
+                            ? 'Salvo…'
+                            : (_startMin == null ? 'Inizia a registrare' : 'Programma alle ${hhmm(st)}'),
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  ),
+                  onPressed: s == null || _saving ? null : _save,
+                ),
+              ),
+            ),
+            const PlayerBar(),
+          ],
+        ),
+      ),
     );
   }
-
-  double _mbPerHour() => RecSettings.i.quality.bitrate / 8 * 3600 / 1000000;
 }
 
 /// Elenco delle registrazioni programmate (nella pagina Registrate).
