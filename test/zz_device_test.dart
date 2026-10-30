@@ -11,16 +11,25 @@ SM=$SDK/cmdline-tools/latest/bin/sdkmanager
 AM=$SDK/cmdline-tools/latest/bin/avdmanager
 ADB=$SDK/platform-tools/adb
 IMG="system-images;android-30;google_apis;x86_64"
+echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm
 sudo chmod 666 /dev/kvm || true
-ls -la /dev/kvm || true
+echo "RESULT kvm: $(ls -la /dev/kvm 2>&1)" >> result.txt
 curl -sL -o pro.apk https://github.com/designer1974/devoo-radio/releases/download/pro-build-20/DevooRadioPro.apk
 curl -sL -o free.apk https://github.com/designer1974/devoo-radio/releases/download/build-18/DevooRadio.apk
 ls -la *.apk
 yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
-tail -3 sdk.log
+tail -3 sdk.log | sed 's/^/RESULT sdk: /' >> result.txt
+ls $SDK/emulator/emulator >> result.txt 2>&1
 echo no | $AM create avd -n t -k "$IMG" --force
 $SDK/emulator/emulator -avd t -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -memory 3072 > emu.log 2>&1 &
-timeout 300 $ADB wait-for-device
+sleep 40
+if ! pgrep -f qemu-system > /dev/null; then
+  echo "RESULT emulatore morto" >> result.txt
+  grep -v "^$" emu.log | tail -12 | sed 's/^/RESULT emu: /' >> result.txt
+  exit 1
+fi
+timeout 400 $ADB wait-for-device
 for i in $(seq 1 90); do [ "$($ADB shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break; sleep 5; done
 echo BOOTED
 sleep 10
