@@ -39,6 +39,10 @@ object StreamRecorder {
     private val queue = LinkedBlockingQueue<File>()
     @Volatile private var encoded = false
 
+    @Volatile var startedAt = 0L
+        private set
+    @Volatile var url = ""
+        private set
     private var base = ""
     private var dir = ""
     private var dst = ""
@@ -52,6 +56,8 @@ object StreamRecorder {
         running = true
         this.base = name
         this.dir = dir
+        this.url = url
+        startedAt = System.currentTimeMillis()
         this.dst = dst
         // promemoria per il recupero se il telefono si spegne
         File(dir, "$name.json").writeText(

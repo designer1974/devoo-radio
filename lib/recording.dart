@@ -8,6 +8,7 @@ import 'flags.dart' show leadingFlag, stripFlag;
 import 'models.dart';
 import 'player.dart';
 import 'recorder.dart';
+import 'schedule.dart';
 
 String two(int n) => n.toString().padLeft(2, '0');
 
@@ -106,6 +107,8 @@ class Recordings extends ChangeNotifier {
 class RecController extends ChangeNotifier {
   RecController._() {
     RadioPlayer.i.addListener(_onPlayer);
+    // registrazioni programmate: le segue anche se partono ad app chiusa
+    _watch = Timer.periodic(const Duration(seconds: 1), (_) => _watchNative());
     // la radio non risponde: niente registrazione in attesa
     RadioPlayer.i.errors.listen((_) {
       if (_pending != null) {
@@ -126,11 +129,75 @@ class RecController extends ChangeNotifier {
   Stream<String> get messages => _messages.stream;
 
   bool get recording => station != null && saving == null;
-  bool get busy => station != null;
 
-  Duration get elapsed => startedAt == null ? Duration.zero : DateTime.now().difference(startedAt!);
+  // ---- registrazione programmata in corso (fatta dal servizio Android) ----
+  Timer? _watch;
+  String? extId;
+  String extName = '';
+  String extFlag = '';
+  String extUrl = '';
+  DateTime? extStart;
+  DateTime? extEnd;
+  int extBytes = 0;
+  bool extStopping = false;
 
-  bool isRecording(Station s) => station?.id == s.id;
+  bool get external => extId != null;
+
+  /// C'è una registrazione qualsiasi (manuale o programmata).
+  bool get busy => station != null || external;
+  bool get anyRecording => recording || (external && !extStopping);
+  bool get anySaving => saving != null || extStopping;
+
+  String get recName => station?.name ?? '${extFlag.isEmpty ? '' : '$extFlag '}$extName';
+  int get recBytes => station != null ? bytes : extBytes;
+
+  Duration get elapsed {
+    final st = startedAt ?? extStart;
+    return st == null ? Duration.zero : DateTime.now().difference(st);
+  }
+
+  bool isRecording(Station s) => station?.id == s.id || (external && extUrl.isNotEmpty && s.url == extUrl);
+
+  /// Ferma quella in corso, manuale o programmata.
+  Future<void> stopAny() async {
+    if (recording) return stopAndSave();
+    if (!external || extStopping) return;
+    extStopping = true;
+    notifyListeners();
+    await Schedules.i.stopRunning();
+  }
+
+  Future<void> _watchNative() async {
+    if (station != null) return; // la manuale si controlla da sola
+    try {
+      final st = await Recorder.streamStatus();
+      final id = st['schedId'] as String?;
+      final busyNative = st['busy'] == true;
+      if (id != null && busyNative) {
+        final first = extId != id;
+        extId = id;
+        extName = (st['schedName'] as String?) ?? '';
+        extFlag = (st['schedFlag'] as String?) ?? '';
+        extUrl = (st['url'] as String?) ?? '';
+        final t = (st['startedAt'] as num?)?.toInt() ?? 0;
+        extStart = t > 0 ? DateTime.fromMillisecondsSinceEpoch(t) : DateTime.now();
+        final e = (st['schedEnd'] as num?)?.toInt() ?? 0;
+        extEnd = e > 0 ? DateTime.fromMillisecondsSinceEpoch(e) : null;
+        extBytes = (st['bytes'] as num?)?.toInt() ?? 0;
+        if (first) unawaited(Schedules.i.reload());
+        notifyListeners();
+      } else if (extId != null) {
+        // finita (orario raggiunto o fermata): il file è pronto
+        extId = null;
+        extStopping = false;
+        extBytes = 0;
+        notifyListeners();
+        _messages.add('Registrazione programmata salvata in Registrate');
+        unawaited(Recordings.i.reload());
+        unawaited(Schedules.i.reload());
+      }
+    } catch (_) {}
+  }
 
   Station? _pending; // radio da registrare appena parte
 
@@ -168,6 +235,10 @@ class RecController extends ChangeNotifier {
 
   Future<void> start() async {
     final s = RadioPlayer.i.current;
+    if (external) {
+      _messages.add('C\'è già una registrazione programmata in corso');
+      return;
+    }
     if (s == null || busy) return;
     final now = DateTime.now();
     try {

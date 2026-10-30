@@ -61,10 +61,23 @@ class MainActivity : AudioServiceActivity() {
                     "streamStatus" -> result.success(
                         mapOf(
                             "running" to StreamRecorder.running,
+                            "busy" to StreamRecorder.busy,
                             "bytes" to StreamRecorder.bytes,
                             "error" to StreamRecorder.error,
+                            "startedAt" to StreamRecorder.startedAt,
+                            "url" to StreamRecorder.url,
+                            "schedId" to ScheduledRecService.activeId,
+                            "schedName" to ScheduledRecService.activeName,
+                            "schedFlag" to ScheduledRecService.activeFlag,
+                            "schedEnd" to ScheduledRecService.activeEnd,
                         )
                     )
+                    "schedStop" -> {
+                        try {
+                            startService(Intent(this, ScheduledRecService::class.java).setAction(ScheduledRecService.ACTION_STOP))
+                        } catch (_: Exception) {}
+                        result.success(null)
+                    }
                     "streamStop" -> Thread {
                         val p = try { StreamRecorder.stop() } catch (e: Exception) { null }
                         runOnUiThread { result.success(p) }
@@ -81,7 +94,7 @@ class MainActivity : AudioServiceActivity() {
                         result.success(null)
                     }
                     "schedList" -> {
-                        val a = Scheduler.all(this)
+                        val a = Scheduler.list(this)
                         result.success((0 until a.length()).map { i ->
                             val o = a.getJSONObject(i)
                             o.keys().asSequence().associateWith { k -> o.get(k) }

@@ -102,6 +102,16 @@ class Schedules extends ChangeNotifier {
     await reload();
   }
 
+  Future<void> stopRunning() async {
+    try {
+      await _ch.invokeMethod('schedStop');
+    } catch (_) {}
+  }
+
+  /// Programmi che si sovrappongono a questo orario.
+  List<Schedule> overlapping(DateTime start, DateTime end) =>
+      items.where((x) => x.start.isBefore(end) && start.isBefore(x.end)).toList();
+
   Future<bool> exactOk() async {
     try {
       return await _ch.invokeMethod<bool>('schedExactOk') ?? true;
@@ -308,6 +318,32 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
         if (go == true) await Schedules.i.openExactSettings();
       }
       final st = _startsNow ? DateTime.now() : _start;
+      // niente doppioni: si chiede se sostituire quello che c'è già in quell'orario
+      await Schedules.i.reload();
+      final clash = Schedules.i.overlapping(st, _end);
+      if (clash.isNotEmpty && mounted) {
+        final c = clash.first;
+        final replace = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Orario già occupato'),
+            content: Text('C\'è già «${c.name}» ${c.running ? '(sta registrando)' : ''} '
+                'dalle ${hhmm(c.start)} alle ${hhmm(c.end)}.\nSi registra una radio alla volta.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sostituisci')),
+            ],
+          ),
+        );
+        if (replace != true) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+        for (final x in clash) {
+          await Schedules.i.remove(x);
+        }
+        if (clash.any((x) => x.running)) await Future<void>.delayed(const Duration(seconds: 3));
+      }
       await Schedules.i.add(s, st, _end, _daily);
       messenger.showSnackBar(SnackBar(
         behavior: SnackBarBehavior.floating,

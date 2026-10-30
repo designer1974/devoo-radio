@@ -40,6 +40,16 @@ object Scheduler {
         ctx.getSharedPreferences(PREFS, 0).edit().putString(KEY, a.toString()).apply()
     }
 
+    /** Elenco con lo stato vero (una registrazione interrotta non risulta "in corso"). */
+    fun list(ctx: Context): JSONArray {
+        val a = all(ctx)
+        for (i in 0 until a.length()) {
+            val j = a.getJSONObject(i)
+            j.put("running", j.optString("id") == ScheduledRecService.activeId)
+        }
+        return a
+    }
+
     fun get(ctx: Context, id: String): JSONObject? {
         val a = all(ctx)
         for (i in 0 until a.length()) if (a.getJSONObject(i).optString("id") == id) return a.getJSONObject(i)
@@ -176,6 +186,11 @@ class RecBootReceiver : BroadcastReceiver() {
 class ScheduledRecService : Service() {
     companion object {
         const val ACTION_STOP = "devoo.rec.STOP"
+        /** Programma che sta registrando adesso (null = nessuno). */
+        @Volatile var activeId: String? = null
+        @Volatile var activeName: String = ""
+        @Volatile var activeFlag: String = ""
+        @Volatile var activeEnd: Long = 0
         private const val CHANNEL = "devoo_rec_sched"
         private const val NOTIF = 7101
     }
@@ -197,6 +212,7 @@ class ScheduledRecService : Service() {
         val j = id?.let { Scheduler.get(this, it) }
         if (j == null || currentId != null) {
             if (currentId == null) { showForeground("Devoo Radio Pro"); stopSelf() }
+            else if (j != null && id != currentId) skip(j) // si sovrappone a quella in corso
             return START_NOT_STICKY
         }
         val name = j.optString("name")
@@ -230,6 +246,10 @@ class ScheduledRecService : Service() {
             )
             j.put("running", true)
             Scheduler.put(this, j)
+            activeId = id
+            activeName = name
+            activeFlag = j.optString("flag")
+            activeEnd = end
         } catch (e: Exception) {
             Log.e("ScheduledRec", "avvio", e)
             finish()
@@ -237,6 +257,19 @@ class ScheduledRecService : Service() {
         }
         handler.postDelayed({ finish() }, end - now)
         return START_NOT_STICKY
+    }
+
+    /** Programma saltato perché c'è già una registrazione: niente resta bloccato nell'elenco. */
+    private fun skip(j: JSONObject) {
+        val id = j.getString("id")
+        if (j.optBoolean("daily")) {
+            j.put("running", false)
+            Scheduler.rollForward(j)
+            Scheduler.put(this, j)
+            Scheduler.arm(this, j)
+        } else {
+            Scheduler.remove(this, id)
+        }
     }
 
     private fun unique(dir: String, name: String): String {
@@ -268,6 +301,7 @@ class ScheduledRecService : Service() {
             }
             handler.post {
                 try { wake?.release() } catch (_: Exception) {}
+                activeId = null
                 currentId = null
                 finishing = false
                 if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)

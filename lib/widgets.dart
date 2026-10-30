@@ -447,19 +447,19 @@ class RecButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final rec = RecController.i;
     final p = RadioPlayer.i;
-    if (rec.saving != null) {
+    if (rec.anySaving) {
       return const Padding(
         padding: EdgeInsets.all(10),
         child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: recRed)),
       );
     }
     return IconButton(
-      tooltip: rec.recording ? 'Ferma e salva' : 'Registra',
+      tooltip: rec.anyRecording ? 'Ferma e salva' : 'Registra',
       iconSize: 30,
-      icon: Icon(rec.recording ? Icons.stop_circle_outlined : Icons.fiber_manual_record,
+      icon: Icon(rec.anyRecording ? Icons.stop_circle_outlined : Icons.fiber_manual_record,
           color: recRed),
-      onPressed: rec.recording
-          ? rec.stopAndSave
+      onPressed: rec.anyRecording
+          ? rec.stopAny
           : (p.isPlaying && !p.isBuffering ? rec.start : null),
     );
   }
@@ -473,8 +473,7 @@ class BigRecButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final rec = RecController.i;
     final p = RadioPlayer.i;
-    if (rec.saving != null) return const RecBanner();
-    if (rec.recording) return const RecBanner();
+    if (rec.busy) return const RecBanner();
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
@@ -485,7 +484,9 @@ class BigRecButton extends StatelessWidget {
         ),
         icon: const Icon(Icons.fiber_manual_record),
         label: const Text('Registra questa radio', style: TextStyle(fontWeight: FontWeight.w700)),
-        onPressed: p.isPlaying && !p.isBuffering ? rec.start : null,
+        onPressed: p.isPlaying && !p.isBuffering
+            ? rec.start
+            : (p.current != null ? () => rec.recordStation(p.current!) : null),
       ),
     );
   }
@@ -515,7 +516,7 @@ class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMix
       builder: (context, _) {
         final rec = RecController.i;
         if (!rec.busy) return const SizedBox.shrink();
-        final saving = rec.saving;
+        final saving = rec.saving ?? (rec.extStopping ? 0.0 : null);
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
@@ -550,7 +551,7 @@ class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMix
                       child: const Icon(Icons.fiber_manual_record, color: recRed, size: 18),
                     ),
                     const SizedBox(width: 8),
-                    Text('REC ${fmtDur(rec.elapsed)}',
+                    Text('${rec.external ? '⏰ ' : ''}REC ${fmtDur(rec.elapsed)}',
                         style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 17,
@@ -558,7 +559,9 @@ class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMix
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '${fmtSize(rec.bytes)} · ${rec.station?.name ?? ''}',
+                        rec.external && rec.extEnd != null
+                            ? '${rec.recName} · fino alle ${two(rec.extEnd!.hour)}:${two(rec.extEnd!.minute)} · ${fmtSize(rec.recBytes)}'
+                            : '${fmtSize(rec.recBytes)} · ${rec.recName}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
@@ -568,7 +571,7 @@ class _RecBannerState extends State<RecBanner> with SingleTickerProviderStateMix
                       style: TextButton.styleFrom(foregroundColor: recRed),
                       icon: const Icon(Icons.stop),
                       label: const Text('Ferma e salva'),
-                      onPressed: rec.stopAndSave,
+                      onPressed: rec.stopAny,
                     ),
                   ],
                 ),
@@ -589,7 +592,7 @@ class _TileRec extends StatelessWidget {
     final rec = RecController.i;
     final p = RadioPlayer.i;
     if (rec.isRecording(station)) {
-      if (rec.saving != null) {
+      if (rec.anySaving) {
         return const Padding(
           padding: EdgeInsets.all(12),
           child: SizedBox(
@@ -599,7 +602,7 @@ class _TileRec extends StatelessWidget {
       return IconButton(
         tooltip: 'Ferma e salva',
         icon: const Icon(Icons.stop_circle, color: recRed),
-        onPressed: rec.stopAndSave,
+        onPressed: rec.stopAny,
       );
     }
     if (rec.isPending(station)) {
