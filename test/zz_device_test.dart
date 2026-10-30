@@ -20,8 +20,8 @@ yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
 tail -3 sdk.log
 echo no | $AM create avd -n t -k "$IMG" --force
 $SDK/emulator/emulator -avd t -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -memory 3072 > emu.log 2>&1 &
-$ADB wait-for-device
-for i in $(seq 1 120); do [ "$($ADB shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break; sleep 5; done
+timeout 300 $ADB wait-for-device
+for i in $(seq 1 90); do [ "$($ADB shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break; sleep 5; done
 echo BOOTED
 sleep 10
 for p in pro:com.designer1974.devoo_radio.pro free:com.designer1974.devoo_radio; do
@@ -42,7 +42,10 @@ void main() {
     if (Platform.environment['GITHUB_REF_NAME'] != 'diag') return;
     final dir = Directory.systemTemp.createTempSync('dev');
     File('${dir.path}/run.sh').writeAsStringSync(_script);
-    final r = await Process.run('bash', ['run.sh'], workingDirectory: dir.path);
+    // tutto su file: il server adb resta acceso e terrebbe aperti i tubi
+    await Process.run('bash', ['-c', 'timeout 1500 bash run.sh > all.log 2>&1 < /dev/null'], workingDirectory: dir.path);
+    final all = File('${dir.path}/all.log');
+    final log = all.existsSync() ? all.readAsStringSync() : '';
     final out = <String>[];
     final res = File('${dir.path}/result.txt');
     if (res.existsSync()) out.addAll(res.readAsLinesSync());
@@ -66,7 +69,7 @@ void main() {
       out.addAll(keep);
     }
     if (out.length < 4) {
-      final s = '${r.stdout}\n${r.stderr}'.split('\n');
+      final s = log.split('\n').where((l) => !l.startsWith('+ ')).toList();
       out.addAll(s.skip(s.length > 30 ? s.length - 30 : 0));
     }
     for (final l in out.take(38)) {
