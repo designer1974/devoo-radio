@@ -11,6 +11,8 @@ import 'recording.dart';
 import 'recordings_page.dart';
 import 'schedule.dart';
 import 'search_page.dart';
+import 'ads.dart';
+import 'pro.dart';
 import 'store.dart';
 import 'update.dart';
 import 'widgets.dart';
@@ -30,10 +32,12 @@ void main() {
     } catch (e) {
       debugPrint('Audio in background non disponibile: $e');
     }
+    await Pro.i.init();
     await Library.i.init();
     await RecSettings.i.load();
     runApp(const DevooRadioApp());
     unawaited(StationStore.i.init());
+    unawaited(initAds());
     unawaited(RecController.i.recoverInterrupted());
   }, (error, stack) => debugPrint('Errore non gestito: $error'));
 }
@@ -49,13 +53,14 @@ class DevooRadioApp extends StatelessWidget {
       surface: const Color(0xFF10151B),
     );
     return MaterialApp(
-      title: 'Devoo Radio Pro',
+      title: Pro.i.appName,
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         colorScheme: scheme,
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFF0B0F14),
+        focusColor: accent.withValues(alpha: 0.28), // si vede bene col telecomando della TV
       ),
       theme: ThemeData(colorScheme: scheme, useMaterial3: true),
       home: const HomeShell(),
@@ -84,7 +89,7 @@ class _HomeShellState extends State<HomeShell> {
     _recMsgs = RecController.i.messages.listen(_snack);
     _life.hashCode; // avvia l'ascolto
     Future<void>.delayed(const Duration(seconds: 4), () {
-      if (mounted) checkForUpdate(context);
+      if (mounted && Pro.i.isProPackage) checkForUpdate(context); // solo la versione GitHub
     });
     Schedules.i.reload();
     _errors = RadioPlayer.i.errors.listen((msg) {
@@ -122,6 +127,7 @@ class _HomeShellState extends State<HomeShell> {
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const AdBanner(),
             const RecBanner(),
             const MiniPlayer(),
             NavigationBar(

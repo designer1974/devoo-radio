@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'pro.dart';
+
 /// Qualità delle registrazioni (AAC in file .m4a: si apre ovunque, anche su WhatsApp e iPhone).
 enum AudioQuality { voice, minimum, medium, high }
 
@@ -34,18 +36,21 @@ bool isCompressed(String path) => !path.toLowerCase().endsWith('.wav');
 class RecSettings {
   RecSettings._();
   static final i = RecSettings._();
-  AudioQuality quality = AudioQuality.voice;
+  AudioQuality _quality = AudioQuality.voice;
+
+  /// Nella versione gratuita si registra solo in qualità Voce.
+  AudioQuality get quality => Pro.i.isPro ? _quality : AudioQuality.voice;
 
   Future<void> load() async {
     try {
       final p = await SharedPreferences.getInstance();
       final q = p.getString('rec_quality');
-      quality = AudioQuality.values.firstWhere((x) => x.name == q, orElse: () => AudioQuality.voice);
+      _quality = AudioQuality.values.firstWhere((x) => x.name == q, orElse: () => AudioQuality.voice);
     } catch (_) {}
   }
 
   Future<void> setQuality(AudioQuality q) async {
-    quality = q;
+    _quality = q;
     try {
       final p = await SharedPreferences.getInstance();
       await p.setString('rec_quality', q.name);

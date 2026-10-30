@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'ads.dart';
 import 'models.dart';
 import 'player.dart';
 import 'recording.dart';
@@ -437,8 +438,9 @@ class PlayerSheet extends StatelessWidget {
                     label: const Text('Programma'),
                     onPressed: () {
                       final nav = Navigator.of(context);
+                      final root = nav.context;
                       nav.pop();
-                      nav.push(MaterialPageRoute(builder: (_) => ScheduleEditor(station: s)));
+                      openScheduleEditor(root, station: s);
                     },
                   ),
                   if (s.hasGeo)
@@ -666,6 +668,6 @@ class PlayerBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const Column(
         mainAxisSize: MainAxisSize.min,
-        children: [RecBanner(), MiniPlayer()],
+        children: [AdBanner(), RecBanner(), MiniPlayer()],
       );
 }

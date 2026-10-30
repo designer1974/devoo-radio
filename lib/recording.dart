@@ -8,6 +8,7 @@ import 'flags.dart' show leadingFlag, stripFlag;
 import 'models.dart';
 import 'player.dart';
 import 'recorder.dart';
+import 'pro.dart';
 import 'schedule.dart';
 
 String two(int n) => n.toString().padLeft(2, '0');
@@ -296,6 +297,12 @@ class RecController extends ChangeNotifier {
       if (st['running'] == false) {
         if (err != null) _messages.add(err);
         await stopAndSave();
+        return;
+      }
+      // versione gratuita: massimo 10 minuti per registrazione
+      if (!Pro.i.isPro && elapsed >= Pro.freeRecLimit) {
+        await stopAndSave();
+        _messages.add('Registrazione salvata (10 minuti). Con Pro registri senza limiti.');
         return;
       }
     } catch (_) {}

@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'editor.dart';
+import 'paywall.dart';
 import 'player.dart';
+import 'pro.dart';
 import 'recorder.dart';
 import 'recording.dart';
 import 'schedule.dart';
@@ -100,6 +102,8 @@ class _RecordingsPageState extends State<RecordingsPage> {
   }
 
   Future<void> _edit(RecFile r) async {
+    if (!await requirePro(context, 'L\'editor per tagliare e unire è incluso in Pro.')) return;
+    if (!mounted) return;
     if (RecController.i.busy) return _snack('Ferma prima la registrazione');
     await _stopLocal();
     await RadioPlayer.i.stop();
@@ -158,8 +162,13 @@ class _RecordingsPageState extends State<RecordingsPage> {
               ),
               RadioGroup<AudioQuality>(
                 groupValue: RecSettings.i.quality,
-                onChanged: (v) {
+                onChanged: (v) async {
                   if (v == null) return;
+                  if (v != AudioQuality.voice && !Pro.i.isPro) {
+                    Navigator.of(ctx).pop();
+                    await openPaywall(context, reason: 'Con Pro scegli tutte le qualità audio, da 10 a 56 MB l\'ora.');
+                    return;
+                  }
                   RecSettings.i.setQuality(v);
                   set(() {});
                 },
@@ -170,6 +179,9 @@ class _RecordingsPageState extends State<RecordingsPage> {
                         value: q,
                         title: Text(q.label),
                         subtitle: Text(q.info),
+                        secondary: q != AudioQuality.voice && !Pro.i.isPro
+                            ? const Icon(Icons.lock_outline, size: 20)
+                            : null,
                       ),
                   ],
                 ),
@@ -180,6 +192,11 @@ class _RecordingsPageState extends State<RecordingsPage> {
                     'Formato M4A (AAC): si apre su WhatsApp, email, Android e iPhone. '
                     'La radio viene registrata direttamente dallo stream, senza perdite e senza rumori.',
                     style: TextStyle(fontSize: 12)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Text('Sviluppata da ${Pro.developer} · ${Pro.website}',
+                    style: const TextStyle(fontSize: 12, color: Colors.white54)),
               ),
             ],
           ),
@@ -209,6 +226,12 @@ class _RecordingsPageState extends State<RecordingsPage> {
                       child: Text('Registrate',
                           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22)),
                     ),
+                    if (!Pro.i.isPro)
+                      TextButton.icon(
+                        icon: const Icon(Icons.workspace_premium, color: accent),
+                        label: const Text('Pro'),
+                        onPressed: () => openPaywall(context),
+                      ),
                     IconButton(
                       tooltip: 'Programma registrazione',
                       icon: const Icon(Icons.alarm_add, color: recRed),

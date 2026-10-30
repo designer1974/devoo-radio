@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'models.dart';
+import 'paywall.dart';
 import 'recorder.dart';
 import 'recording.dart';
 import 'widgets.dart';
@@ -154,8 +155,10 @@ class Schedules extends ChangeNotifier {
   }
 }
 
-void openScheduleEditor(BuildContext context, {Station? station}) {
-  Navigator.of(context).push(MaterialPageRoute(builder: (_) => ScheduleEditor(station: station)));
+Future<void> openScheduleEditor(BuildContext context, {Station? station}) async {
+  if (!await requirePro(context, 'Le registrazioni programmate sono incluse in Pro. Provalo gratis per 7 giorni.')) return;
+  if (!context.mounted) return;
+  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ScheduleEditor(station: station)));
 }
 
 /// Programma: radio, inizio, fine, ogni giorno.

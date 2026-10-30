@@ -18,6 +18,7 @@ dependencies:
   shared_preferences: ^2.3.0
   audioplayers: ^6.1.0
   share_plus: ^10.1.4
+  google_mobile_ads: any
 
 dev_dependencies:
   flutter_test:

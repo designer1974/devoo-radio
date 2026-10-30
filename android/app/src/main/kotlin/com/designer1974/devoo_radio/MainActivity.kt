@@ -128,6 +128,12 @@ class MainActivity : AudioServiceActivity() {
                         result.success(null)
                     }
                     "is64" -> result.success(Build.SUPPORTED_64_BIT_ABIS.isNotEmpty())
+                    "appInfo" -> {
+                        val ui = getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager
+                        val tv = ui.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
+                            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+                        result.success(mapOf("package" to packageName, "tv" to tv))
+                    }
                     "installedAt" -> result.success(
                         try { packageManager.getPackageInfo(packageName, 0).lastUpdateTime } catch (_: Exception) { 0L }
                     )

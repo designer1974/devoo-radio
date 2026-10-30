@@ -1,11 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'models.dart';
+import 'paywall.dart';
 import 'player.dart';
+import 'pro.dart';
 import 'search_page.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -33,6 +36,7 @@ class _MapPageState extends State<MapPage> {
   @override
   void dispose() {
     mapFocus.removeListener(_onFocus);
+    _focus.dispose();
     super.dispose();
   }
 
@@ -102,6 +106,71 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  // ---------- TV: telecomando ----------
+  final _focus = FocusNode(debugLabel: 'mappa');
+
+  void _pan(double dx, double dy) {
+    try {
+      final c = _map.camera;
+      final k = 256 * math.pow(2, c.zoom) / 360; // pixel per grado
+      final step = 140 / k;
+      final lat = (c.center.latitude - dy * step * math.cos(c.center.latitude * math.pi / 180)).clamp(-80.0, 80.0);
+      final lng = normalizeLng(c.center.longitude + dx * step);
+      _map.move(LatLng(lat, lng), c.zoom);
+    } catch (_) {}
+  }
+
+  void _zoomBy(double d) {
+    try {
+      final c = _map.camera;
+      _map.move(c.center, (c.zoom + d).clamp(1.5, 14.0));
+    } catch (_) {}
+  }
+
+  /// OK sul telecomando: apre la città sotto il mirino, altrimenti ingrandisce.
+  void _select() {
+    try {
+      final c = _map.camera;
+      final p = nearestPlace(StationStore.i.places, c.center.latitude, c.center.longitude, c.zoom, maxPx: 40);
+      if (p != null) {
+        setState(() => _selected = p);
+        _openPlace(p);
+      } else {
+        _zoomBy(1);
+      }
+    } catch (_) {}
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent e) {
+    if (e is KeyUpEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    if (k == LogicalKeyboardKey.arrowLeft) { _pan(-1, 0); return KeyEventResult.handled; }
+    if (k == LogicalKeyboardKey.arrowRight) { _pan(1, 0); return KeyEventResult.handled; }
+    if (k == LogicalKeyboardKey.arrowUp) { _pan(0, -1); return KeyEventResult.handled; }
+    if (k == LogicalKeyboardKey.arrowDown) { _pan(0, 1); return KeyEventResult.handled; }
+    if (e is KeyRepeatEvent) return KeyEventResult.ignored;
+    if (k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter) {
+      _select();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.channelUp || k == LogicalKeyboardKey.add || k == LogicalKeyboardKey.numpadAdd ||
+        k == LogicalKeyboardKey.mediaFastForward) {
+      _zoomBy(1);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.channelDown || k == LogicalKeyboardKey.minus || k == LogicalKeyboardKey.numpadSubtract ||
+        k == LogicalKeyboardKey.mediaRewind) {
+      _zoomBy(-1);
+      return KeyEventResult.handled;
+    }
+    // Indietro: esce dalla mappa e va ai pulsanti in basso
+    if (k == LogicalKeyboardKey.goBack || k == LogicalKeyboardKey.escape) {
+      node.nextFocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   void _surprise() {
     final s = StationStore.i.random();
     if (s == null) return;
@@ -119,7 +188,8 @@ class _MapPageState extends State<MapPage> {
         final store = StationStore.i;
         final dots = _buildDots(store.places);
         final sel = _selected;
-        return Stack(
+        final tv = Pro.i.isTv;
+        final stack = Stack(
           children: [
             FlutterMap(
               mapController: _map,
@@ -196,7 +266,13 @@ class _MapPageState extends State<MapPage> {
                                     height: 18,
                                     child: CircularProgressIndicator(strokeWidth: 2)),
                               )
-                            else
+                            else if (!Pro.i.isPro)
+                              IconButton(
+                                tooltip: 'Passa a Pro',
+                                icon: const Icon(Icons.workspace_premium_outlined, color: accent),
+                                onPressed: () => openPaywall(context),
+                              ),
+                            if (!store.loading)
                               IconButton(
                                 tooltip: 'Aggiorna le radio',
                                 icon: const Icon(Icons.refresh),
@@ -252,6 +328,45 @@ class _MapPageState extends State<MapPage> {
                   style: TextStyle(fontSize: 9, color: Colors.white.withValues(alpha: 0.5))),
             ),
           ],
+        );
+        if (!tv) return stack;
+        return Focus(
+          focusNode: _focus,
+          autofocus: true,
+          onKeyEvent: _onKey,
+          child: ListenableBuilder(
+            listenable: _focus,
+            builder: (_, child) => Stack(children: [
+              child!,
+              // mirino al centro, come Radio Garden
+              IgnorePointer(
+                child: Center(
+                  child: Icon(Icons.add_circle_outline,
+                      size: 44, color: _focus.hasFocus ? Colors.white : Colors.white38),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                bottom: 24,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _focus.hasFocus
+                          ? 'Frecce: muovi · OK: apri la città · CH+ / CH−: zoom · Indietro: menu'
+                          : 'Premi su per tornare alla mappa',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+            child: stack,
+          ),
         );
       },
     );
