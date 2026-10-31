@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Text;
+import 'package:flutter/cupertino.dart' show CupertinoDatePicker, CupertinoDatePickerMode, CupertinoTheme, CupertinoThemeData, CupertinoTextThemeData;
 import 'package:flutter/services.dart';
 
 import 'api.dart';
@@ -246,10 +247,124 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   void _setDay(int d) {
     setState(() {
       _day = d;
-      final opts = _startOptions();
-      if (!opts.contains(_startMin)) _startMin = opts.firstWhere((x) => x != null, orElse: () => null);
-      if (_day != 0 && _startMin == null) _startMin = 0;
+      if (_day != 0 && _startMin == null) {
+        final n = DateTime.now();
+        _startMin = n.hour * 60 + n.minute;
+      }
     });
+  }
+
+  int get _nowMin {
+    final n = DateTime.now();
+    return n.hour * 60 + n.minute;
+  }
+
+  /// Rotelle per ore e minuti (al minuto esatto). Ritorna i minuti, -1 = «Adesso», null = annullato.
+  Future<int?> _wheel(String title, int initial, {bool allowNow = false}) {
+    var picked = initial;
+    return showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(tr(title), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              SizedBox(
+                height: 200,
+                child: CupertinoTheme(
+                  data: const CupertinoThemeData(
+                    brightness: Brightness.dark,
+                    textTheme: CupertinoTextThemeData(
+                      dateTimePickerTextStyle: TextStyle(fontSize: 26, color: Colors.white),
+                    ),
+                  ),
+                  child: CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.time,
+                    use24hFormat: true,
+                    initialDateTime: DateTime(2000, 1, 1, initial ~/ 60, initial % 60),
+                    onDateTimeChanged: (t) => picked = t.hour * 60 + t.minute,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (allowNow)
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                        onPressed: () => Navigator.pop(ctx, -1),
+                        child: Text(tr('Adesso'), style: const TextStyle(fontSize: 17)),
+                      ),
+                    ),
+                  if (allowNow) const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        backgroundColor: accent,
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: () => Navigator.pop(ctx, picked),
+                      child: Text(tr('Conferma'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickStart() async {
+    final r = await _wheel('Inizio', _startMin ?? _nowMin, allowNow: _day == 0);
+    if (r == null || !mounted) return;
+    setState(() {
+      if (r < 0) {
+        _day = 0;
+        _startMin = null;
+        return;
+      }
+      _startMin = r;
+      // oggi ma l'orario è già passato: domani
+      if (_day == 0 && r <= _nowMin) _day = 1;
+    });
+  }
+
+  Future<void> _pickEnd() async {
+    final st = _startMin ?? _nowMin;
+    final r = await _wheel('Fine', (st + _durMin) % (24 * 60));
+    if (r == null || r < 0 || !mounted) return;
+    setState(() {
+      var d = (r - st) % (24 * 60);
+      if (d <= 0) d += 24 * 60;
+      _durMin = d;
+    });
+  }
+
+  Widget _timeField(String label, String value, VoidCallback onTap) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: onTap,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: tr(label),
+          border: const OutlineInputBorder(),
+          isDense: true,
+          contentPadding: const EdgeInsets.fromLTRB(12, 14, 6, 14),
+          suffixIcon: const Icon(Icons.schedule),
+        ),
+        child: Text(value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white)),
+      ),
+    );
   }
 
   Future<void> _search(String text) async {
@@ -358,10 +473,8 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final s = _station;
-    final startOpts = _startOptions();
-    if (!startOpts.contains(_startMin)) _startMin = startOpts.isEmpty ? null : startOpts.first;
     final st = _start;
-    const durs = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480, 600, 720];
+    const quick = [30, 60, 120, 180, 240];
     final mb = _durMin / 60 * RecSettings.i.quality.bitrate / 8 * 3600 / 1000000;
     final en = _end;
     final nextDay = en.day != st.day;
@@ -421,29 +534,26 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
           Row(
             children: [
               Expanded(
-                child: _box<int?>(
-                  label: 'Inizio',
-                  value: _startMin,
-                  items: startOpts,
-                  text: (m) => m == null ? 'Adesso' : _hm(m),
-                  onChanged: (m) => setState(() => _startMin = m),
-                ),
+                child: _timeField('Inizio', _startMin == null ? tr('Adesso') : _hm(_startMin!), _pickStart),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _box<int>(
-                  label: 'Fine',
-                  value: _durMin,
-                  items: durs,
-                  text: (d) {
-                    final e = st.add(Duration(minutes: d));
-                    final h = d ~/ 60, m = d % 60;
-                    final len = h == 0 ? '$m min' : (m == 0 ? '$h h' : '$h h $m');
-                    return '${hhmm(e)}  ($len)';
-                  },
-                  onChanged: (d) => setState(() => _durMin = d),
-                ),
+                child: _timeField('Fine', hhmm(en), _pickEnd),
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // durate rapide
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final d in quick)
+                ChoiceChip(
+                  label: Text(d < 60 ? '$d min' : '${d ~/ 60} h'),
+                  selected: _durMin == d,
+                  onSelected: (_) => setState(() => _durMin = d),
+                ),
             ],
           ),
           const SizedBox(height: 6),
