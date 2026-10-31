@@ -15,7 +15,7 @@ echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sud
 sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm
 sudo chmod 666 /dev/kvm || true
 echo "RESULT kvm: $(ls -la /dev/kvm 2>&1)" >> result.txt
-curl -sL -o pro.apk https://github.com/designer1974/devoo-radio/releases/download/pro-build-21/DevooRadioPro.apk
+curl -sL -o pro.apk https://github.com/designer1974/devoo-radio/releases/download/pro-build-26/DevooRadioPro.apk
 curl -sL -o free.apk https://github.com/designer1974/devoo-radio/releases/download/build-18/DevooRadio.apk
 ls -la *.apk
 yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
