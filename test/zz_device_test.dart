@@ -10,19 +10,20 @@ export ANDROID_SDK_ROOT=$SDK
 SM=$SDK/cmdline-tools/latest/bin/sdkmanager
 AM=$SDK/cmdline-tools/latest/bin/avdmanager
 ADB=$SDK/platform-tools/adb
-IMG="system-images;android-30;google_apis;x86_64"
+IMG="system-images;android-29;google_apis;x86_64"
 echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
 sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm
 sudo chmod 666 /dev/kvm || true
 echo "RESULT kvm: $(ls -la /dev/kvm 2>&1)" >> result.txt
-curl -sL -o pro.apk https://github.com/designer1974/devoo-radio/releases/download/pro-build-26/DevooRadioPro.apk
-curl -sL -o free.apk https://github.com/designer1974/devoo-radio/releases/download/build-18/DevooRadio.apk
+# la stessa app compilata per il processore dell'emulatore (niente traduzione ARM)
+(cd "$PROJ" && flutter build apk --release --target-platform android-x64 > "$OLDPWD/build.log" 2>&1)
+cp "$PROJ/build/app/outputs/flutter-apk/app-release.apk" pro.apk || grep -E "error|What went wrong" -A5 build.log | head -8 | sed 's/^/RESULT build: /' >> result.txt
 ls -la *.apk
 yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
 tr '\r' '\n' < sdk.log | grep -v '^ *\[' | grep -v '^$' | tail -4 | sed 's/^/RESULT sdk: /' >> result.txt
 ls $SDK/emulator/emulator >> result.txt 2>&1
 export ANDROID_AVD_HOME=$PWD/avd; mkdir -p $ANDROID_AVD_HOME
-ls $SDK/system-images/android-30/google_apis/x86_64 2>&1 | head -3 | sed 's/^/RESULT img: /' >> result.txt
+ls $SDK/system-images/android-29/google_apis/x86_64 2>&1 | head -3 | sed 's/^/RESULT img: /' >> result.txt
 echo no | $AM create avd -n t -k "$IMG" -p $ANDROID_AVD_HOME/t.avd --force > avd.log 2>&1
 tr '\r' '\n' < avd.log | grep -iE "error|warn|exception" | head -5 | sed 's/^/RESULT avd: /' >> result.txt
 ls $ANDROID_AVD_HOME | sed 's/^/RESULT avdhome: /' >> result.txt
@@ -37,7 +38,7 @@ timeout 400 $ADB wait-for-device
 for i in $(seq 1 90); do [ "$($ADB shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break; sleep 5; done
 echo BOOTED
 sleep 10
-for p in pro:com.designer1974.devoo_radio.pro free:com.designer1974.devoo_radio; do
+for p in pro:com.designer1974.devoo_radio.pro; do
   f=${p%%:*}; pkg=${p#*:}
   $ADB install -r $f.apk
   $ADB logcat -c
@@ -56,13 +57,14 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('dev');
     File('${dir.path}/run.sh').writeAsStringSync(_script);
     // tutto su file: il server adb resta acceso e terrebbe aperti i tubi
-    await Process.run('bash', ['-c', 'timeout 1500 bash run.sh > all.log 2>&1 < /dev/null'], workingDirectory: dir.path);
+    await Process.run('bash', ['-c', 'PROJ="${Directory.current.path}" timeout 2100 bash run.sh > all.log 2>&1 < /dev/null'],
+        workingDirectory: dir.path);
     final all = File('${dir.path}/all.log');
     final log = all.existsSync() ? all.readAsStringSync() : '';
     final out = <String>[];
     final res = File('${dir.path}/result.txt');
     if (res.existsSync()) out.addAll(res.readAsLinesSync());
-    for (final f in ['pro', 'free']) {
+    for (final f in ['pro']) {
       final lc = File('${dir.path}/logcat_$f.txt');
       if (!lc.existsSync()) {
         out.add('$f: nessun logcat');
@@ -74,10 +76,10 @@ void main() {
               l.contains('AndroidRuntime') ||
               l.contains('FATAL') ||
               l.contains(' E flutter') ||
-              l.contains('F DEBUG') ||
+              (l.contains('F DEBUG') && (l.contains('Abort') || l.contains(' #0') || l.contains(' #1') || l.contains('signal'))) ||
               l.contains('F libc') ||
               (l.contains(' E ') && l.toLowerCase().contains('devoo')))
-          .take(16);
+          .take(30);
       out.add('--- $f ---');
       out.addAll(keep);
     }
@@ -90,5 +92,5 @@ void main() {
       print('error ${l.length > 300 ? l.substring(0, 300) : l}');
     }
     fail('diagnosi');
-  }, timeout: const Timeout(Duration(minutes: 45)));
+  }, timeout: const Timeout(Duration(minutes: 50)));
 }
