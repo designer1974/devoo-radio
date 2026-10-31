@@ -129,6 +129,9 @@ class Text extends m.StatelessWidget {
 
 /// Italiano → [inglese, francese, spagnolo, tedesco, arabo]
 const Map<String, List<String>> _dict = {
+  'Registra per riascoltare dopo': ['Record to listen later', 'Enregistrer pour réécouter plus tard', 'Graba para escuchar después', 'Aufnehmen, um später zu hören', 'سجّل لتستمع لاحقًا'],
+  'Notizie, programmi e lezioni di lingua da ascoltare quando vuoi. Le registrazioni sono solo per uso personale: rispetta i diritti delle radio.': ['News, shows and language lessons to listen to whenever you want. Recordings are for personal use only: respect the stations\' rights.', 'Infos, émissions et leçons de langue à écouter quand vous voulez. Les enregistrements sont réservés à un usage personnel : respectez les droits des radios.', 'Noticias, programas y clases de idiomas para escuchar cuando quieras. Las grabaciones son solo para uso personal: respeta los derechos de las radios.', 'Nachrichten, Sendungen und Sprachlektionen zum Hören, wann du willst. Aufnahmen nur für den privaten Gebrauch: Achte die Rechte der Sender.', 'أخبار وبرامج ودروس لغة تستمع إليها متى شئت. التسجيلات للاستخدام الشخصي فقط: احترم حقوق الإذاعات.'],
+  'Ho capito, registra': ['Got it, record', "J'ai compris, enregistrer", 'Entendido, grabar', 'Verstanden, aufnehmen', 'فهمت، سجّل'],
   'Conferma': ['Confirm', 'Confirmer', 'Confirmar', 'Bestätigen', 'تأكيد'],
   'Radio nazionali e web': ['National and web stations', 'Radios nationales et web', 'Radios nacionales y web', 'Landesweite und Web-Sender', 'إذاعات وطنية وعلى الإنترنت'],
   'Altre radio': ['Other stations', 'Autres radios', 'Otras radios', 'Weitere Sender', 'إذاعات أخرى'],
