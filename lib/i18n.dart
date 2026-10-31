@@ -129,6 +129,10 @@ class Text extends m.StatelessWidget {
 
 /// Italiano → [inglese, francese, spagnolo, tedesco, arabo]
 const Map<String, List<String>> _dict = {
+  'Altre radio': ['Other stations', 'Autres radios', 'Otras radios', 'Weitere Sender', 'إذاعات أخرى'],
+  'Tutte le radio': ['All stations', 'Toutes les radios', 'Todas las radios', 'Alle Sender', 'كل الإذاعات'],
+  'Cerca città o radio': ['Search city or station', 'Chercher une ville ou une radio', 'Buscar ciudad o radio', 'Stadt oder Sender suchen', 'ابحث عن مدينة أو إذاعة'],
+  'Nessun risultato': ['No results', 'Aucun résultat', 'Sin resultados', 'Keine Ergebnisse', 'لا نتائج'],
   'Globo': ['Globe', 'Globe', 'Globo', 'Globus', 'الكرة الأرضية'],
   'Rapporto errori': ['Error report', "Rapport d'erreurs", 'Informe de errores', 'Fehlerbericht', 'تقرير الأخطاء'],
   'Copia': ['Copy', 'Copier', 'Copiar', 'Kopieren', 'نسخ'],

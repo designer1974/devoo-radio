@@ -249,7 +249,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
   }
 }
 
-/// Tutte le radio di un paese.
+/// Un paese: prima l'elenco delle città (con quante radio), poi le radio di ogni città.
 class CountryPage extends StatefulWidget {
   const CountryPage({super.key, required this.country});
   final Country country;
@@ -257,8 +257,17 @@ class CountryPage extends StatefulWidget {
   State<CountryPage> createState() => _CountryPageState();
 }
 
+class _City {
+  _City(this.name);
+  final String name;
+  final List<Station> stations = [];
+}
+
+const _otherCity = 'Altre radio';
+
 class _CountryPageState extends State<CountryPage> {
   List<Station>? _list;
+  List<_City> _cities = const [];
   bool _failed = false;
   String _filter = '';
 
@@ -271,11 +280,73 @@ class _CountryPageState extends State<CountryPage> {
   Future<void> _load() async {
     setState(() => _failed = false);
     try {
-      final r = await RadioApi.i.search(countryCode: widget.country.code, limit: 1000);
-      if (mounted) setState(() => _list = r);
+      final r = await RadioApi.i.search(countryCode: widget.country.code, limit: 5000);
+      if (!mounted) return;
+      setState(() {
+        _list = r;
+        _cities = _group(r);
+      });
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }
+  }
+
+  /// Città dal campo "state" della radio; se manca, dal punto più vicino sulla mappa.
+  List<_City> _group(List<Station> all) {
+    final code = widget.country.code;
+    final places = StationStore.i.places.where((p) => p.countryCode == code).toList();
+    String placeName(Station s) {
+      Place? best;
+      var bestD = 0.25 * 0.25; // circa 25 km
+      for (final p in places) {
+        final d = (p.lat - s.lat!) * (p.lat - s.lat!) + (p.lng - s.lng!) * (p.lng - s.lng!);
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+      if (best == null) return '';
+      final l = best.label;
+      final i = l.lastIndexOf(',');
+      final n = i > 0 ? l.substring(0, i).trim() : l.trim();
+      return n.toLowerCase() == best.stations.first.country.toLowerCase() ? '' : n;
+    }
+
+    final map = <String, _City>{};
+    final spelled = <String, Map<String, int>>{};
+    for (final st in all) {
+      var name = st.state.trim();
+      if (name.isEmpty && st.hasGeo) name = placeName(st);
+      if (name.isEmpty || name.toLowerCase() == st.country.toLowerCase()) name = _otherCity;
+      final key = name.toLowerCase();
+      map.putIfAbsent(key, () => _City(name)).stations.add(st);
+      final sp = spelled.putIfAbsent(key, () => {});
+      sp[name] = (sp[name] ?? 0) + 1;
+    }
+    // il nome scritto nel modo più usato
+    final out = <_City>[];
+    map.forEach((key, c) {
+      final sp = spelled[key]!;
+      final best = sp.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+      out.add(_City(best)..stations.addAll(c.stations));
+    });
+    out.sort((a, b) {
+      if (a.name == _otherCity) return 1;
+      if (b.name == _otherCity) return -1;
+      return b.stations.length.compareTo(a.stations.length);
+    });
+    return out;
+  }
+
+  void _openCity(_City c) {
+    final country = widget.country;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _CityPage(
+        title: c.name == _otherCity ? tr(_otherCity) : c.name,
+        subtitle: '${country.flag}  ${country.displayName}',
+        stations: c.stations,
+      ),
+    ));
   }
 
   @override
@@ -283,15 +354,29 @@ class _CountryPageState extends State<CountryPage> {
     final c = widget.country;
     final all = _list;
     final f = _filter.toLowerCase();
-    final list = all
-        ?.where((s) =>
-            f.isEmpty ||
-            s.name.toLowerCase().contains(f) ||
-            s.state.toLowerCase().contains(f) ||
-            s.tags.toLowerCase().contains(f))
-        .toList();
+    final cities = f.isEmpty
+        ? _cities
+        : _cities.where((x) => x.name.toLowerCase().contains(f)).toList();
+    // radio che corrispondono al filtro (nome o genere), in qualsiasi città
+    final stations = f.isEmpty
+        ? const <Station>[]
+        : (all ?? const <Station>[])
+            .where((s) => s.name.toLowerCase().contains(f) || s.tags.toLowerCase().contains(f))
+            .take(200)
+            .toList();
+    final realCities = _cities.where((x) => x.name != _otherCity).length;
     return Scaffold(
-      appBar: AppBar(title: Text('${c.flag}  ${c.displayName}')),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${c.flag}  ${c.displayName}'),
+            if (all != null)
+              Text(tr('{} radio · {} città').replaceFirst('{}', '${all.length}').replaceFirst('{}', '$realCities'),
+                  style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
       bottomNavigationBar: const PlayerBar(),
       body: all == null
           ? Center(
@@ -307,8 +392,8 @@ class _CountryPageState extends State<CountryPage> {
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                   child: TextField(
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.filter_list),
-                      hintText: tr('Filtra ${all.length} radio (nome, città, genere)'),
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: tr('Cerca città o radio'),
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -316,13 +401,102 @@ class _CountryPageState extends State<CountryPage> {
                   ),
                 ),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: list!.length,
-                    itemBuilder: (_, i) => StationTile(list[i]),
+                  child: ListView(
+                    children: [
+                      if (f.isEmpty)
+                        _CityTile(
+                          name: tr('Tutte le radio'),
+                          count: all.length,
+                          icon: Icons.public,
+                          onTap: () => _openCity(_City(tr('Tutte le radio'))..stations.addAll(all)),
+                        ),
+                      for (final x in cities)
+                        _CityTile(
+                          name: x.name == _otherCity ? tr(_otherCity) : x.name,
+                          count: x.stations.length,
+                          icon: x.name == _otherCity ? Icons.more_horiz : null,
+                          onTap: () => _openCity(x),
+                        ),
+                      if (stations.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                          child: Text(tr('Radio'), style: const TextStyle(fontWeight: FontWeight.w700)),
+                        ),
+                        for (final s in stations) StationTile(s),
+                      ],
+                      if (cities.isEmpty && stations.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: Text('Nessun risultato')),
+                        ),
+                    ],
                   ),
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// Una città con il numero delle radio in un cerchio verde.
+class _CityTile extends StatelessWidget {
+  const _CityTile({required this.name, required this.count, required this.onTap, this.icon});
+  final String name;
+  final int count;
+  final IconData? icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: CircleAvatar(
+            radius: 22,
+            backgroundColor: accent,
+            foregroundColor: Colors.black,
+            child: icon != null
+                ? Icon(icon, color: Colors.black)
+                : Text('$count', style: TextStyle(fontWeight: FontWeight.w700, fontSize: count > 999 ? 12 : 15)),
+          ),
+          title: Text(name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+          subtitle: Text(count == 1 ? '1 radio' : tr('{} radio').replaceFirst('{}', '$count')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+        const Divider(height: 1, indent: 72),
+      ],
+    );
+  }
+}
+
+/// Le radio di una città.
+class _CityPage extends StatelessWidget {
+  const _CityPage({required this.title, required this.subtitle, required this.stations});
+  final String title;
+  final String subtitle;
+  final List<Station> stations;
+
+  @override
+  Widget build(BuildContext context) {
+    final n = stations.length;
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title),
+            Text('$subtitle · ${n == 1 ? '1 radio' : tr('{} radio').replaceFirst('{}', '$n')}',
+                style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+      bottomNavigationBar: const PlayerBar(),
+      body: ListView.builder(
+        itemCount: n,
+        itemBuilder: (_, i) => StationTile(stations[i]),
+      ),
     );
   }
 }
