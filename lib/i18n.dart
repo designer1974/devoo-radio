@@ -129,6 +129,7 @@ class Text extends m.StatelessWidget {
 
 /// Italiano → [inglese, francese, spagnolo, tedesco, arabo]
 const Map<String, List<String>> _dict = {
+  'Radio nazionali e web': ['National and web stations', 'Radios nationales et web', 'Radios nacionales y web', 'Landesweite und Web-Sender', 'إذاعات وطنية وعلى الإنترنت'],
   'Altre radio': ['Other stations', 'Autres radios', 'Otras radios', 'Weitere Sender', 'إذاعات أخرى'],
   'Tutte le radio': ['All stations', 'Toutes les radios', 'Todas las radios', 'Alle Sender', 'كل الإذاعات'],
   'Cerca città o radio': ['Search city or station', 'Chercher une ville ou une radio', 'Buscar ciudad o radio', 'Stadt oder Sender suchen', 'ابحث عن مدينة أو إذاعة'],
