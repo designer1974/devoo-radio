@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart' hide Text;
 
 import 'api.dart';
+import 'cities.dart';
 import 'models.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -263,7 +264,7 @@ class _City {
   final List<Station> stations = [];
 }
 
-const _otherCity = 'Altre radio';
+const _otherCity = 'Radio nazionali e web';
 
 class _CountryPageState extends State<CountryPage> {
   List<Station>? _list;
@@ -281,60 +282,38 @@ class _CountryPageState extends State<CountryPage> {
     setState(() => _failed = false);
     try {
       final r = await RadioApi.i.search(countryCode: widget.country.code, limit: 5000);
+      final cities = await _group(r);
       if (!mounted) return;
       setState(() {
         _list = r;
-        _cities = _group(r);
+        _cities = cities;
       });
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }
   }
 
-  /// Città dal campo "state" della radio; se manca, dal punto più vicino sulla mappa.
-  List<_City> _group(List<Station> all) {
-    final code = widget.country.code;
-    final places = StationStore.i.places.where((p) => p.countryCode == code).toList();
-    String placeName(Station s) {
-      Place? best;
-      var bestD = 0.25 * 0.25; // circa 25 km
-      for (final p in places) {
-        final d = (p.lat - s.lat!) * (p.lat - s.lat!) + (p.lng - s.lng!) * (p.lng - s.lng!);
-        if (d < bestD) {
-          bestD = d;
-          best = p;
-        }
-      }
-      if (best == null) return '';
-      final l = best.label;
-      final i = l.lastIndexOf(',');
-      final n = i > 0 ? l.substring(0, i).trim() : l.trim();
-      return n.toLowerCase() == best.stations.first.country.toLowerCase() ? '' : n;
-    }
-
+  /// Ogni radio nella sua città vera; le altre sono nazionali o solo web.
+  Future<List<_City>> _group(List<Station> all) async {
+    CityIndex? idx;
+    try {
+      idx = await CityIndex.of(widget.country.code);
+    } catch (_) {}
     final map = <String, _City>{};
-    final spelled = <String, Map<String, int>>{};
+    final pop = <String, int>{};
     for (final st in all) {
-      var name = st.state.trim();
-      if (name.isEmpty && st.hasGeo) name = placeName(st);
-      if (name.isEmpty || name.toLowerCase() == st.country.toLowerCase()) name = _otherCity;
-      final key = name.toLowerCase();
-      map.putIfAbsent(key, () => _City(name)).stations.add(st);
-      final sp = spelled.putIfAbsent(key, () => {});
-      sp[name] = (sp[name] ?? 0) + 1;
+      final city = idx?.cityOf(st);
+      final name = city?.name ?? _otherCity;
+      map.putIfAbsent(name, () => _City(name)).stations.add(st);
+      if (city != null) pop[name] = city.population;
     }
-    // il nome scritto nel modo più usato
-    final out = <_City>[];
-    map.forEach((key, c) {
-      final sp = spelled[key]!;
-      final best = sp.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
-      out.add(_City(best)..stations.addAll(c.stations));
-    });
-    out.sort((a, b) {
-      if (a.name == _otherCity) return 1;
-      if (b.name == _otherCity) return -1;
-      return b.stations.length.compareTo(a.stations.length);
-    });
+    final out = map.values.toList()
+      ..sort((a, b) {
+        if (a.name == _otherCity) return 1;
+        if (b.name == _otherCity) return -1;
+        final c = b.stations.length.compareTo(a.stations.length);
+        return c != 0 ? c : (pop[b.name] ?? 0).compareTo(pop[a.name] ?? 0);
+      });
     return out;
   }
 

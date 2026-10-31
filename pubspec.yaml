@@ -31,5 +31,6 @@ flutter:
   assets:
     - assets/earth_day.jpg
     - assets/earth_night.jpg
+    - assets/cities.tsv
   shaders:
     - shaders/globe.frag
