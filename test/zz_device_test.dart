@@ -21,7 +21,11 @@ ls -la *.apk
 yes | $SM --install "emulator" "platform-tools" "$IMG" > sdk.log 2>&1
 tr '\r' '\n' < sdk.log | grep -v '^ *\[' | grep -v '^$' | tail -4 | sed 's/^/RESULT sdk: /' >> result.txt
 ls $SDK/emulator/emulator >> result.txt 2>&1
-echo no | $AM create avd -n t -k "$IMG" --force
+export ANDROID_AVD_HOME=$PWD/avd; mkdir -p $ANDROID_AVD_HOME
+ls $SDK/system-images/android-30/google_apis/x86_64 2>&1 | head -3 | sed 's/^/RESULT img: /' >> result.txt
+echo no | $AM create avd -n t -k "$IMG" -p $ANDROID_AVD_HOME/t.avd --force > avd.log 2>&1
+tr '\r' '\n' < avd.log | grep -iE "error|warn|exception" | head -5 | sed 's/^/RESULT avd: /' >> result.txt
+ls $ANDROID_AVD_HOME | sed 's/^/RESULT avdhome: /' >> result.txt
 $SDK/emulator/emulator -avd t -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -memory 3072 > emu.log 2>&1 &
 sleep 40
 if ! pgrep -f qemu-system > /dev/null; then
