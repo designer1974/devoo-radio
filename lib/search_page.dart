@@ -301,8 +301,9 @@ class _CountryPageState extends State<CountryPage> {
     } catch (_) {}
     final map = <String, _City>{};
     final pop = <String, int>{};
+    final assigned = idx?.assignAll(all, widget.country.code) ?? const {};
     for (final st in all) {
-      final city = idx?.cityOf(st);
+      final city = assigned[st.id];
       final name = city?.name ?? _otherCity;
       map.putIfAbsent(name, () => _City(name)).stations.add(st);
       if (city != null) pop[name] = city.population;
