@@ -28,3 +28,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/earth_day.jpg
+    - assets/earth_night.jpg
+  shaders:
+    - shaders/globe.frag

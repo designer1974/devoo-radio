@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'globe.dart';
 import 'locate.dart';
 import 'models.dart';
 import 'paywall.dart';
@@ -22,7 +23,13 @@ class MapPage extends StatefulWidget {
 }
 
 class _MapPageState extends State<MapPage> {
-  final _map = MapController();
+  var _map = MapController();
+  final _globe = GlobeController();
+  bool _globeMode = true; // si parte dal globo
+  LatLng _mapCenter = const LatLng(35, 12);
+  double _mapZoom = 4;
+  double _globeLat = 30, _globeLng = 12, _globeZoom = 1;
+  bool _spun = false;
   List<Place>? _drawnFor;
   int _drawnZoom = -1;
   int _zoom = 3;
@@ -64,6 +71,54 @@ class _MapPageState extends State<MapPage> {
     return _dots;
   }
 
+  double get _minDim {
+    final sz = MediaQuery.sizeOf(context);
+    return math.min(sz.width, sz.height);
+  }
+
+  /// Dal globo alla mappa piatta, nello stesso punto e alla stessa grandezza.
+  void _toMap(double lat, double lng, double globeZoom) {
+    final radius = _minDim * 0.42 * globeZoom;
+    final z = (math.log(2 * math.pi * radius / 256) / math.ln2).clamp(3.2, 14.0);
+    setState(() {
+      _globeMode = false;
+      _spun = true;
+      _mapCenter = LatLng(lat, lng);
+      _mapZoom = z + 0.2;
+      _map = MapController();
+    });
+  }
+
+  /// Dalla mappa piatta al globo.
+  void _toGlobe() {
+    var lat = _mapCenter.latitude, lng = _mapCenter.longitude, z = _mapZoom;
+    try {
+      lat = _map.camera.center.latitude;
+      lng = _map.camera.center.longitude;
+      z = _map.camera.zoom;
+    } catch (_) {}
+    final radius = 256 * math.pow(2, z) / (2 * math.pi);
+    setState(() {
+      _globeMode = true;
+      _spun = true;
+      _globeLat = lat.clamp(-80.0, 80.0);
+      _globeLng = lng;
+      _globeZoom = (radius / (_minDim * 0.42)).clamp(0.9, globeMaxZoom - 0.4);
+    });
+  }
+
+  /// Va in un punto: sul globo vola, sulla mappa si sposta.
+  void _goTo(double lat, double lng, double mapZoom) {
+    if (_globeMode) {
+      final radius = 256 * math.pow(2, mapZoom) / (2 * math.pi);
+      _globe.flyTo(lat, lng, zoom: math.min(globeMaxZoom - 0.3, radius / (_minDim * 0.42)));
+      return;
+    }
+    try {
+      _map.move(LatLng(lat, lng), mapZoom);
+    } catch (_) {}
+  }
+
   void _onFocus() {
     final s = mapFocus.value;
     if (s == null || !s.hasGeo) return;
@@ -75,9 +130,7 @@ class _MapPageState extends State<MapPage> {
       }
     }
     setState(() => _selected = place);
-    try {
-      _map.move(LatLng(s.lat!, s.lng!), 7);
-    } catch (_) {}
+    _goTo(s.lat!, s.lng!, _globeMode ? 5 : 7);
   }
 
   void _onTap(LatLng pos) {
@@ -115,6 +168,10 @@ class _MapPageState extends State<MapPage> {
   final _focus = FocusNode(debugLabel: 'mappa');
 
   void _pan(double dx, double dy) {
+    if (_globeMode) {
+      _globe.rotateBy(-dy * 8, dx * 8);
+      return;
+    }
     try {
       final c = _map.camera;
       final k = 256 * math.pow(2, c.zoom) / 360; // pixel per grado
@@ -126,6 +183,10 @@ class _MapPageState extends State<MapPage> {
   }
 
   void _zoomBy(double d) {
+    if (_globeMode) {
+      _globe.zoomBy(d > 0 ? 1.45 : 1 / 1.45);
+      return;
+    }
     try {
       final c = _map.camera;
       _map.move(c.center, (c.zoom + d).clamp(1.5, 14.0));
@@ -134,6 +195,16 @@ class _MapPageState extends State<MapPage> {
 
   /// OK sul telecomando: apre la città sotto il mirino, altrimenti ingrandisce.
   void _select() {
+    if (_globeMode) {
+      final p = _globe.placeAtCenter();
+      if (p != null) {
+        setState(() => _selected = p);
+        _openPlace(p);
+      } else {
+        _zoomBy(1);
+      }
+      return;
+    }
     try {
       final c = _map.camera;
       final p = nearestPlace(StationStore.i.places, c.center.latitude, c.center.longitude, c.zoom, maxPx: 40);
@@ -200,9 +271,14 @@ class _MapPageState extends State<MapPage> {
       }
       return;
     }
-    try {
-      _map.move(LatLng(loc.lat, loc.lng), auto ? 5 : 7);
-    } catch (_) {}
+    // all'apertura il globo gira un po' e poi si ferma su di te
+    if (!(auto && _globeMode && _globe.spinning)) {
+      _goTo(loc.lat, loc.lng, auto ? 4 : 6);
+    } else {
+      Future<void>.delayed(const Duration(milliseconds: 2500), () {
+        if (mounted && _globeMode && _globe.spinning) _goTo(loc.lat, loc.lng, 3.6);
+      });
+    }
     messenger.hideCurrentSnackBar();
     if (!auto) {
       messenger.showSnackBar(
@@ -255,19 +331,49 @@ class _MapPageState extends State<MapPage> {
         final tv = Pro.i.isTv;
         final stack = Stack(
           children: [
-            FlutterMap(
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              child: _globeMode
+                  ? GlobeView(
+              key: ValueKey('globo$_globeLat$_globeLng$_globeZoom'),
+              places: store.places,
+              controller: _globe,
+              night: Library.i.mapStyle == 1,
+              me: _me == null ? null : (_me!.lat, _me!.lng),
+              selected: sel,
+              initialLat: _globeLat,
+              initialLng: _globeLng,
+              initialZoom: _globeZoom,
+              autoSpin: !_spun,
+              onPlace: (p) {
+                _spun = true;
+                setState(() => _selected = p);
+                _openPlace(p);
+              },
+              onDeepZoom: _toMap,
+            )
+                  : FlutterMap(
               mapController: _map,
               options: MapOptions(
-                initialCenter: const LatLng(35, 12),
-                initialZoom: 2.6,
-                minZoom: 1.5,
+                initialCenter: _mapCenter,
+                initialZoom: _mapZoom,
+                minZoom: 2.5,
                 maxZoom: 14,
                 backgroundColor: const Color(0xFF0B0F14),
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                 ),
                 onTap: (_, pos) => _onTap(pos),
-                onPositionChanged: (camera, _) {
+                onPositionChanged: (camera, gesture) {
+                  _mapCenter = camera.center;
+                  _mapZoom = camera.zoom;
+                  // allontanandosi molto si torna al globo
+                  if (gesture && camera.zoom < 2.9) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && !_globeMode) _toGlobe();
+                    });
+                    return;
+                  }
                   final z = camera.zoom.round();
                   if (z != _zoom) setState(() => _zoom = z);
                 },
@@ -296,6 +402,7 @@ class _MapPageState extends State<MapPage> {
                     ),
                   ]),
               ],
+            ),
             ),
             // In alto: titolo e stato
             SafeArea(
@@ -385,16 +492,24 @@ class _MapPageState extends State<MapPage> {
                     ? null
                     : () {
                         final me = _me;
-                        if (me != null && !_locating) {
-                          try {
-                            _map.move(LatLng(me.lat, me.lng), 7);
-                          } catch (_) {}
-                        }
+                        if (me != null && !_locating) _goTo(me.lat, me.lng, 6);
                         _locate();
                       },
                 child: _locating
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.my_location),
+              ),
+            ),
+            Positioned(
+              right: 14,
+              bottom: 200,
+              child: FloatingActionButton.small(
+                heroTag: 'globe',
+                tooltip: _globeMode ? tr('Mappa') : tr('Globo'),
+                onPressed: () => _globeMode
+                    ? _toMap(_globe.lat, _globe.lng, math.max(_globe.zoom, 2.2))
+                    : _toGlobe(),
+                child: Icon(_globeMode ? Icons.map_outlined : Icons.public),
               ),
             ),
             Positioned(
@@ -422,7 +537,10 @@ class _MapPageState extends State<MapPage> {
             Positioned(
               left: 8,
               bottom: 4,
-              child: Text('Mappa © Esri, Maxar, Earthstar Geographics · radio-browser.info',
+              child: Text(
+                  _globeMode
+                      ? 'Terra © NASA Blue Marble · radio-browser.info'
+                      : 'Mappa © Esri, Maxar, Earthstar Geographics · radio-browser.info',
                   style: TextStyle(fontSize: 9, color: Colors.white.withValues(alpha: 0.5))),
             ),
           ],

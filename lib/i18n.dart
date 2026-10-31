@@ -129,6 +129,10 @@ class Text extends m.StatelessWidget {
 
 /// Italiano → [inglese, francese, spagnolo, tedesco, arabo]
 const Map<String, List<String>> _dict = {
+  'Globo': ['Globe', 'Globe', 'Globo', 'Globus', 'الكرة الأرضية'],
+  'Rapporto errori': ['Error report', "Rapport d'erreurs", 'Informe de errores', 'Fehlerbericht', 'تقرير الأخطاء'],
+  'Copia': ['Copy', 'Copier', 'Copiar', 'Kopieren', 'نسخ'],
+  'Chiudi': ['Close', 'Fermer', 'Cerrar', 'Schließen', 'إغلاق'],
   // navigazione
   'Mappa': ['Map', 'Carte', 'Mapa', 'Karte', 'الخريطة'],
   'Cerca': ['Search', 'Rechercher', 'Buscar', 'Suchen', 'بحث'],
