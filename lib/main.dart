@@ -19,6 +19,7 @@ import 'update.dart';
 import 'widgets.dart';
 import 'i18n.dart';
 import 'diag.dart';
+import 'rec_notice.dart';
 
 void main() {
   runZonedGuarded(() async {
@@ -72,6 +73,7 @@ class DevooRadioApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: Lang.i,
       builder: (context, _) => MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: Pro.i.appName,
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,

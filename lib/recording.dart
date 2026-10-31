@@ -10,6 +10,7 @@ import 'player.dart';
 import 'recorder.dart';
 import 'pro.dart';
 import 'schedule.dart';
+import 'rec_notice.dart';
 
 String two(int n) => n.toString().padLeft(2, '0');
 
@@ -250,6 +251,7 @@ class RecController extends ChangeNotifier {
       return;
     }
     if (s == null || busy) return;
+    if (!await recNoticeAccepted()) return;
     final now = DateTime.now();
     try {
       final d = await Recordings.i.dir();
