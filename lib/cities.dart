@@ -47,22 +47,79 @@ class CityIndex {
     return best == null ? null : cities[best];
   }
 
+  /// La città vicina: conta la distanza ma anche la grandezza (un quartiere non batte la città).
   GeoCity? _nearest(double lat, double lng) {
     GeoCity? best;
-    var bestKm = 40.0;
+    var bestScore = 0.0;
     final k = math.cos(lat * math.pi / 180);
     for (final c in cities) {
       final dy = (c.lat - lat) * 111, dx = (c.lng - lng) * 111 * k;
       final d = math.sqrt(dx * dx + dy * dy);
-      // le città grandi "attirano" un po' di più
-      final w = d - math.min(10, c.population / 300000);
-      if (w < bestKm) {
-        bestKm = w;
+      if (d > 45) continue;
+      final score = c.population / ((d + 4) * (d + 4));
+      if (score > bestScore) {
+        bestScore = score;
         best = c;
       }
     }
     return best;
   }
+
+  /// Tutte le radio di un paese: prima ognuna da sola, poi le radio della stessa
+  /// emittente (es. "Radio Medi1 - Jazz", "Radio Medi1 - Hits") prendono la città dell'emittente.
+  Map<String, GeoCity?> assignAll(List<Station> all, String countryCode) {
+    final out = <String, GeoCity?>{};
+    final brands = _brands[countryCode.toUpperCase()] ?? const {};
+    for (final s in all) {
+      var c = cityOf(s);
+      if (c == null) {
+        final n = ' ${normCity(s.name)} ';
+        for (final e in brands.entries) {
+          if (n.contains(' ${e.key} ')) {
+            c = _byName(e.value);
+            break;
+          }
+        }
+      }
+      out[s.id] = c;
+    }
+    // stessa emittente → stessa città, se le radio già trovate sono d'accordo
+    final votes = <String, Map<GeoCity, int>>{};
+    for (final s in all) {
+      final c = out[s.id];
+      if (c == null) continue;
+      final b = brandOf(s.name);
+      if (b == null) continue;
+      final m = votes.putIfAbsent(b, () => {});
+      m[c] = (m[c] ?? 0) + 1;
+    }
+    for (final s in all) {
+      if (out[s.id] != null) continue;
+      final b = brandOf(s.name);
+      final m = b == null ? null : votes[b];
+      if (m == null || m.isEmpty) continue;
+      final total = m.values.fold<int>(0, (a, v) => a + v);
+      final top = m.entries.reduce((a, v) => a.value >= v.value ? a : v);
+      if (top.value / total >= 0.7) out[s.id] = top.key;
+    }
+    return out;
+  }
+
+  GeoCity? _byName(String name) {
+    for (final c in cities) {
+      if (c.name == name) return c;
+    }
+    return null;
+  }
+}
+
+/// "Radio Medi1 - Jazz" → "radio medi1"; "Hit Radio 100% Urban" → "hit radio".
+String? brandOf(String name) {
+  final head = name.split(RegExp(r'\s[-–|:]\s|\(|\[|/')).first;
+  final words = normCity(head).split(' ').where((w) => w.isNotEmpty && !RegExp(r'^\d').hasMatch(w)).toList();
+  if (words.isEmpty) return null;
+  final b = words.take(2).join(' ');
+  return b.length >= 5 ? b : null;
 }
 
 class GeoCity {
@@ -84,20 +141,68 @@ const _extra = {
     'souss': 'Agadir',
     'marrakech': 'Marrakesh',
     'fez': 'Fes',
+    'souss massa': 'Agadir',
+    'casablanca settat': 'Casablanca',
+    'fes meknes': 'Fes',
+    'marrakech safi': 'Marrakesh',
+    'tanger tetouan al hoceima': 'Tangier',
+    'beni mellal khenifra': 'Beni Mellal',
+    'draa tafilalet': 'Errachidia',
+    'guelmim oued noun': 'Guelmim',
+    'laayoune sakia el hamra': 'Laayoune',
+    'dakhla oued ed dahab': 'Dakhla',
+    'el jadida': 'El Jadida',
+    'eljadida': 'El Jadida',
+    'mazagan': 'El Jadida',
+  },
+};
+
+/// Emittenti conosciute senza città nei dati: la città della sede.
+const _brands = {
+  'MA': {
+    'medi1': 'Tangier',
+    'medi 1': 'Tangier',
+    'cap radio': 'Tangier',
+    'hit radio': 'Rabat',
+    'snrt': 'Rabat',
+    'idaa watania': 'Rabat',
+    'radio nationale': 'Rabat',
+    'chaine inter': 'Rabat',
+    'radio mohammed vi': 'Rabat',
+    'radio mars': 'Casablanca',
+    'aswat': 'Casablanca',
+    'med radio': 'Casablanca',
+    'medradio': 'Casablanca',
+    'mfm': 'Casablanca',
+    'atlantic': 'Casablanca',
+    'chada': 'Casablanca',
+    'luxe radio': 'Casablanca',
+    '2m': 'Casablanca',
+    'yabiladi': 'Casablanca',
+    'medina fm': 'Casablanca',
+    'adwaa': 'Casablanca',
+    'achkid': 'Casablanca',
+    'skyrock': 'Casablanca',
+    'radio plus': 'Marrakesh',
   },
 };
 
 CityIndex _build((String, String) a) {
   final (raw, cc) = a;
+  // il Marocco comprende anche le città del Sahara (Laayoune, Dakhla)
+  final prefixes = cc == 'MA' ? ['MA\t', 'EH\t'] : ['$cc\t'];
+  final rows = <List<String>>[];
+  for (final line in raw.split('\n')) {
+    if (!prefixes.any(line.startsWith)) continue;
+    final f = line.split('\t');
+    if (f.length >= 5) rows.add(f);
+  }
+  rows.sort((x, y) => (int.tryParse(y[4]) ?? 0).compareTo(int.tryParse(x[4]) ?? 0));
   final cities = <GeoCity>[];
   final alias = <String, int>{};
   final primary = <String>{};
-  final prefix = '$cc\t';
   final alts = <int, List<String>>{};
-  for (final line in raw.split('\n')) {
-    if (!line.startsWith(prefix)) continue;
-    final f = line.split('\t');
-    if (f.length < 5) continue;
+  for (final f in rows) {
     final i = cities.length;
     cities.add(GeoCity(f[1], double.tryParse(f[2]) ?? 0, double.tryParse(f[3]) ?? 0, int.tryParse(f[4]) ?? 0));
     final key = normCity(f[1]);

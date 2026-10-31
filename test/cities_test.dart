@@ -20,5 +20,22 @@ void main() {
     expect(c(st('Hit Radio', state: 'New York')), isNull);
     expect(c(st('Medi 1')), isNull);
     expect(c(st('Geo', lat: 33.6, lng: -7.6)), 'Casablanca');
+    expect(c(st('Geo2', lat: 30.52, lng: -9.63)), 'Agadir');
+    expect(c(st('Radio X', state: 'El Jadida')), 'El Jadida');
+    expect(c(st('Radio Y', state: 'Laayoune')), 'Laayoune');
+    final all = [
+      st('Radio Medi1 - Jazz'),
+      st('Radio Medi1 - Hits'),
+      st('Hit Radio 100% Urban'),
+      st('Radio Mars 91.2 FM'),
+      st('Zine Bladi'),
+    ];
+    final m = idx.assignAll(all, 'MA');
+    expect(m['Radio Medi1 - Jazz']?.name, 'Tangier');
+    expect(m['Radio Medi1 - Hits']?.name, 'Tangier');
+    expect(m['Hit Radio 100% Urban']?.name, 'Rabat');
+    expect(m['Radio Mars 91.2 FM']?.name, 'Casablanca');
+    expect(m['Zine Bladi'], isNull);
+    expect(brandOf('Radio Medi1 - Jazz'), 'radio medi1');
   });
 }
