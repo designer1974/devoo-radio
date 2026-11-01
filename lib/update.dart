@@ -22,6 +22,27 @@ class UpdateInfo {
   const UpdateInfo(this.build, this.url, this.size);
 }
 
+/// Progetto pubblico con solo le app da installare.
+const _appsRepo = 'designer1974/devoo-apps';
+
+/// Le release di [repo] con il tag che inizia per [prefix]: (numero build, release).
+Future<List<(int, Map)>> _releases(String repo, String prefix) async {
+  try {
+    final r = await http.get(Uri.https('api.github.com', '/repos/$repo/releases', {'per_page': '20'}),
+        headers: {'Accept': 'application/vnd.github+json', 'User-Agent': 'DevooRadio'}).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return const [];
+    final list = jsonDecode(r.body);
+    if (list is! List) return const [];
+    return [
+      for (final rel in list)
+        if (rel is Map && '${rel['tag_name']}'.startsWith(prefix))
+          (int.tryParse('${rel['tag_name']}'.substring(prefix.length)) ?? 0, rel),
+    ];
+  } catch (_) {
+    return const [];
+  }
+}
+
 /// Cerca su GitHub una versione Pro più nuova di quella installata.
 Future<UpdateInfo?> findUpdate() async {
   try {
@@ -29,22 +50,19 @@ Future<UpdateInfo?> findUpdate() async {
     final installedMs = (await _ch.invokeMethod<num>('installedAt'))?.toInt() ?? 0;
     if (installedMs <= 0) return null;
     final installed = DateTime.fromMillisecondsSinceEpoch(installedMs);
-    final r = await http.get(Uri.https('api.github.com', '/repos/$_repo/releases', {'per_page': '15'}),
-        headers: {'Accept': 'application/vnd.github+json', 'User-Agent': 'DevooRadio'}).timeout(const Duration(seconds: 15));
-    if (r.statusCode != 200) return null;
-    final list = jsonDecode(r.body);
-    if (list is! List) return null;
+    // le app si scaricano da «devoo-apps» (pubblico); il progetto col codice può essere privato
+    final list = [
+      ...await _releases(_appsRepo, 'radio-pro-build-'),
+      ...await _releases(_repo, 'pro-build-'),
+    ];
+    if (list.isEmpty) return null;
     var is64 = true;
     try {
       is64 = await _ch.invokeMethod<bool>('is64') ?? true;
     } catch (_) {}
     final want = is64 ? 'DevooRadioPro.apk' : 'DevooRadioPro-telefoni-vecchi.apk';
     UpdateInfo? best;
-    for (final rel in list) {
-      if (rel is! Map) continue;
-      final tag = '${rel['tag_name']}';
-      if (!tag.startsWith('pro-build-')) continue;
-      final n = int.tryParse(tag.substring('pro-build-'.length)) ?? 0;
+    for (final (n, rel) in list) {
       final pub = DateTime.tryParse('${rel['published_at']}');
       // più nuova = pubblicata dopo l'installazione di questa versione
       if (pub == null || !pub.isAfter(installed.add(const Duration(minutes: 2)))) continue;
