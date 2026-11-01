@@ -96,6 +96,7 @@ jobs:
         with:
           name: DevooRadioPro
           path: '*.apk'
+          retention-days: 2
 
       # Pubblica l'APK nella pagina "Releases" per scaricarlo dal telefono
       - uses: softprops/action-gh-release@v2
