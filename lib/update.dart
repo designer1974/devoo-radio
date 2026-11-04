@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'striped.dart';
 import 'widgets.dart';
 import 'i18n.dart';
+import 'pro.dart';
 
 const _repo = 'designer1974/devoo-radio';
 const _ch = MethodChannel('rr/recorder');
@@ -51,21 +52,25 @@ Future<UpdateInfo?> findUpdate() async {
     if (installedMs <= 0) return null;
     final installed = DateTime.fromMillisecondsSinceEpoch(installedMs);
     // le app si scaricano da «devoo-apps» (pubblico); il progetto col codice può essere privato
-    final list = [
-      ...await _releases(_appsRepo, 'radio-pro-build-'),
-      ...await _releases(_repo, 'pro-build-'),
-    ];
+    // versione sviluppatore («.pro») oppure APK del sito
+    final pro = Pro.i.isProPackage;
+    final list = pro
+        ? [...await _releases(_appsRepo, 'radio-pro-build-'), ...await _releases(_repo, 'pro-build-')]
+        : await _releases(_appsRepo, 'radio-build-');
     if (list.isEmpty) return null;
     var is64 = true;
     try {
       is64 = await _ch.invokeMethod<bool>('is64') ?? true;
     } catch (_) {}
-    final want = is64 ? 'DevooRadioPro.apk' : 'DevooRadioPro-telefoni-vecchi.apk';
+    final base = pro ? 'DevooRadioPro' : 'DevooRadio';
+    final want = is64 ? '$base.apk' : '$base-telefoni-vecchi.apk';
     UpdateInfo? best;
     for (final (n, rel) in list) {
       final pub = DateTime.tryParse('${rel['published_at']}');
       // più nuova = pubblicata dopo l'installazione di questa versione
       if (pub == null || !pub.isAfter(installed.add(const Duration(minutes: 2)))) continue;
+      // se sappiamo il numero di questa versione, solo build più nuove
+      if (appBuild > 0 && n <= appBuild) continue;
       if (best != null && n <= best.build) continue;
       for (final a in (rel['assets'] as List? ?? const [])) {
         if (a is Map && a['name'] == want) {
@@ -77,6 +82,20 @@ Future<UpdateInfo?> findUpdate() async {
   } catch (_) {
     return null;
   }
+}
+
+/// Dal menu «Cerca aggiornamenti»: propone la versione nuova o dice che è già l'ultima.
+Future<void> checkForUpdateNow(BuildContext context) async {
+  final m = ScaffoldMessenger.of(context);
+  m.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text('Cerco aggiornamenti…')));
+  final u = await findUpdate();
+  if (!context.mounted) return;
+  m.hideCurrentSnackBar();
+  if (u == null) {
+    m.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text('Hai già l\'ultima versione')));
+    return;
+  }
+  showModalBottomSheet(context: context, isDismissible: true, showDragHandle: true, builder: (_) => UpdateSheet(info: u));
 }
 
 /// All'avvio: se c'è una versione nuova, la propone (una volta per versione).

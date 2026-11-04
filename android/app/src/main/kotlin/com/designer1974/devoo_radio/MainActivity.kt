@@ -140,11 +140,22 @@ class MainActivity : AudioServiceActivity() {
                         result.success(t)
                     }
                     "is64" -> result.success(Build.SUPPORTED_64_BIT_ABIS.isNotEmpty())
+                    "openUrl" -> {
+                        val ok = try {
+                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(call.argument<String>("url")!!))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
+                        } catch (_: Exception) { false }
+                        result.success(ok)
+                    }
                     "appInfo" -> {
                         val ui = getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager
                         val tv = ui.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
                             packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-                        result.success(mapOf("package" to packageName, "tv" to tv))
+                        // id del dispositivo: serve per il codice dispositivo della licenza Pro
+                        val id = try {
+                            android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
+                        } catch (_: Exception) { "" }
+                        result.success(mapOf("package" to packageName, "tv" to tv, "id" to id, "model" to "${Build.MANUFACTURER} ${Build.MODEL}"))
                     }
                     "installedAt" -> result.success(
                         try { packageManager.getPackageInfo(packageName, 0).lastUpdateTime } catch (_: Exception) { 0L }

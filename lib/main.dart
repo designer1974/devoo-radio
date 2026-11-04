@@ -13,6 +13,7 @@ import 'recordings_page.dart';
 import 'schedule.dart';
 import 'search_page.dart';
 import 'ads.dart';
+import 'ping.dart';
 import 'pro.dart';
 import 'store.dart';
 import 'update.dart';
@@ -49,6 +50,7 @@ void main() {
     unawaited(StationStore.i.init());
     unawaited(initAds());
     unawaited(RecController.i.recoverInterrupted());
+    if (appDist == 'site') Ping.start(); // collegamento giornaliero con devoo.it (licenze)
   }, (error, stack) => Diag.log(error, stack));
 }
 
@@ -122,7 +124,7 @@ class _HomeShellState extends State<HomeShell> {
       if (mounted) Diag.showIfAny(context);
     });
     Future<void>.delayed(const Duration(seconds: 4), () {
-      if (mounted && Pro.i.isProPackage) checkForUpdate(context); // solo la versione GitHub
+      if (mounted && (Pro.i.isProPackage || appDist == 'site')) checkForUpdate(context); // versione GitHub e APK del sito (non gli store)
     });
     Schedules.i.reload();
     _errors = RadioPlayer.i.errors.listen((msg) {

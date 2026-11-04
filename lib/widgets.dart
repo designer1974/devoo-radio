@@ -10,6 +10,9 @@ import 'schedule.dart';
 import 'striped.dart';
 import 'store.dart';
 import 'i18n.dart';
+import 'paywall.dart';
+import 'pro.dart';
+import 'update.dart';
 
 /// Navigazione condivisa: scheda attiva e stazione da mostrare sulla mappa.
 final tabIndex = ValueNotifier<int>(0);
@@ -684,8 +687,36 @@ class LangButton extends StatelessWidget {
       listenable: Lang.i,
       builder: (context, _) => PopupMenuButton<String>(
         tooltip: tr('Lingua'),
-        onSelected: Lang.i.set,
+        onSelected: (v) {
+          if (v == '_pro') {
+            openPaywall(context);
+          } else if (v == '_upd') {
+            checkForUpdateNow(context);
+          } else if (!v.startsWith('_')) {
+            Lang.i.set(v);
+          }
+        },
         itemBuilder: (_) => [
+          PopupMenuItem(
+            value: '_pro',
+            child: Row(children: [
+              Icon(Pro.i.isPro ? Icons.verified : Icons.workspace_premium, color: accent),
+              const SizedBox(width: 12),
+              Flexible(child: Text(Pro.i.isPro ? 'Devoo Radio Pro' : 'Passa a Pro')),
+            ]),
+          ),
+          if (Pro.i.isProPackage || appDist == 'site')
+            const PopupMenuItem(
+              value: '_upd',
+              child: Row(children: [Icon(Icons.system_update), SizedBox(width: 12), Text('Cerca aggiornamenti')]),
+            ),
+          PopupMenuItem(
+            value: '_ver',
+            enabled: false,
+            child: Text('${Pro.i.appName} · ${appBuild > 0 ? 'build $appBuild' : 'sviluppo'}',
+                style: const TextStyle(fontSize: 13)),
+          ),
+          const PopupMenuDivider(),
           for (final (code, flag, name) in Lang.all)
             PopupMenuItem(
               value: code,

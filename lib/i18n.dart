@@ -65,6 +65,37 @@ String tr(String s, [String? code]) {
   String out = s;
   final exact = _dict[s];
   if (exact != null) {
+  'Cerca aggiornamenti': ['Check for updates', 'Rechercher des mises à jour', 'Buscar actualizaciones', 'Nach Updates suchen', 'البحث عن تحديثات'],
+  'Cerco aggiornamenti…': ['Checking for updates…', 'Recherche de mises à jour…', 'Buscando actualizaciones…', 'Suche nach Updates…', 'جارٍ البحث عن تحديثات…'],
+  'Hai già l\'ultima versione': ['You already have the latest version', 'Vous avez déjà la dernière version', 'Ya tienes la última versión', 'Du hast bereits die neueste Version', 'لديك آخر نسخة بالفعل'],
+  'Hai già una licenza che dura di più': ['You already have a longer licence', 'Vous avez déjà une licence plus longue', 'Ya tienes una licencia más larga', 'Du hast bereits eine längere Lizenz', 'لديك رخصة أطول بالفعل'],
+  'Questa licenza è scaduta': ['This licence has expired', 'Cette licence a expiré', 'Esta licencia ha caducado', 'Diese Lizenz ist abgelaufen', 'هذه الرخصة منتهية'],
+  'Chiave non valida per questo telefono (serve una chiave di Devoo Radio)': ['Key not valid for this phone (you need a Devoo Radio key)', 'Clé non valable pour ce téléphone (il faut une clé Devoo Radio)', 'Clave no válida para este teléfono (necesitas una clave de Devoo Radio)', 'Schlüssel für dieses Telefon ungültig (Devoo-Radio-Schlüssel nötig)', 'المفتاح غير صالح لهذا الهاتف (يلزم مفتاح Devoo Radio)'],
+  'Scrivi la chiave di licenza': ['Write the licence key', 'Écrivez la clé de licence', 'Escribe la clave de licencia', 'Lizenzschlüssel eingeben', 'اكتب مفتاح الرخصة'],
+  'Versione gratuita': ['Free version', 'Version gratuite', 'Versión gratuita', 'Kostenlose Version', 'النسخة المجانية'],
+  'Prova gratuita terminata': ['Free trial ended', 'Essai gratuit terminé', 'Prueba gratuita terminada', 'Kostenloser Test beendet', 'انتهت التجربة المجانية'],
+  'Licenza scaduta': ['Licence expired', 'Licence expirée', 'Licencia caducada', 'Lizenz abgelaufen', 'انتهت الرخصة'],
+  'Abbonamento Pro attivo': ['Pro subscription active', 'Abonnement Pro actif', 'Suscripción Pro activa', 'Pro-Abo aktiv', 'اشتراك Pro مفعّل'],
+  'Prova Pro attiva fino al {}': ['Pro trial active until {}', 'Essai Pro actif jusqu\'au {}', 'Prueba Pro activa hasta el {}', 'Pro-Test aktiv bis {}', 'تجربة Pro مفعّلة حتى {}'],
+  'Licenza scaduta il {}: rinnova subito': ['Licence expired on {}: renew now', 'Licence expirée le {} : renouvelez vite', 'Licencia caducada el {}: renueva ya', 'Lizenz am {} abgelaufen: jetzt verlängern', 'انتهت الرخصة في {}: جدّدها الآن'],
+  'Pro attivo fino al {}': ['Pro active until {}', 'Pro actif jusqu\'au {}', 'Pro activo hasta el {}', 'Pro aktiv bis {}', 'Pro مفعّل حتى {}'],
+  'Pro attivo · a vita': ['Pro active · lifetime', 'Pro actif · à vie', 'Pro activo · de por vida', 'Pro aktiv · lebenslang', 'Pro مفعّل · مدى الحياة'],
+  'Versione sviluppatore: Pro sempre attivo': ['Developer version: Pro always on', 'Version développeur : Pro toujours actif', 'Versión de desarrollador: Pro siempre activo', 'Entwicklerversion: Pro immer aktiv', 'نسخة المطوّر: Pro مفعّل دائمًا'],
+  'Devoo Radio Pro attivato. Grazie!': ['Devoo Radio Pro activated. Thank you!', 'Devoo Radio Pro activé. Merci !', 'Devoo Radio Pro activado. ¡Gracias!', 'Devoo Radio Pro aktiviert. Danke!', 'تم تفعيل Devoo Radio Pro. شكرًا!'],
+  'Prova Pro attiva per 7 giorni. Buon ascolto!': ['Pro trial active for 7 days. Enjoy listening!', 'Essai Pro actif pendant 7 jours. Bonne écoute !', 'Prueba Pro activa durante 7 días. ¡Buena escucha!', 'Pro-Test 7 Tage aktiv. Viel Spaß beim Hören!', 'تجربة Pro مفعّلة لمدة 7 أيام. استماعًا ممتعًا!'],
+  'Codice copiato': ['Code copied', 'Code copié', 'Código copiado', 'Code kopiert', 'تم نسخ الرمز'],
+  'Annuale {}': ['Yearly {}', 'Annuel {}', 'Anual {}', 'Jährlich {}', 'سنوي {}'],
+  'Mensile {}': ['Monthly {}', 'Mensuel {}', 'Mensual {}', 'Monatlich {}', 'شهري {}'],
+  '365 giorni · risparmi il 66%': ['365 days · save 66%', '365 jours · économisez 66 %', '365 días · ahorras un 66%', '365 Tage · 66 % sparen', '365 يومًا · وفّر 66%'],
+  '31 giorni': ['31 days', '31 jours', '31 días', '31 Tage', '31 يومًا'],
+  'Annuale': ['Yearly', 'Annuel', 'Anual', 'Jährlich', 'سنوي'],
+  'Attiva': ['Activate', 'Activer', 'Activar', 'Aktivieren', 'تفعيل'],
+  'Incolla qui la chiave': ['Paste the key here', 'Collez la clé ici', 'Pega aquí la clave', 'Schlüssel hier einfügen', 'الصق المفتاح هنا'],
+  '2. Inserisci la chiave che ricevi': ['2. Enter the key you receive', '2. Saisissez la clé reçue', '2. Introduce la clave que recibes', '2. Erhaltenen Schlüssel eingeben', '2. أدخل المفتاح الذي تستلمه'],
+  'Si apre WhatsApp (o SMS, email) con il codice già scritto.': ['WhatsApp (or SMS, email) opens with the code already written.', 'WhatsApp (ou SMS, e-mail) s\'ouvre avec le code déjà écrit.', 'Se abre WhatsApp (o SMS, correo) con el código ya escrito.', 'WhatsApp (oder SMS, E-Mail) öffnet sich mit dem Code bereits eingetragen.', 'يفتح واتساب (أو الرسائل، البريد) والرمز مكتوب مسبقًا.'],
+  'Codice dispositivo': ['Device code', 'Code de l\'appareil', 'Código del dispositivo', 'Gerätecode', 'رمز الجهاز'],
+  '1. Chiedi la licenza': ['1. Ask for the licence', '1. Demandez la licence', '1. Pide la licencia', '1. Lizenz anfordern', '1. اطلب الرخصة'],
+  'Senza carta e senza abbonamento: dopo 7 giorni torna gratis da sola.': ['No card and no subscription: after 7 days it goes back to free by itself.', 'Sans carte ni abonnement : après 7 jours elle redevient gratuite toute seule.', 'Sin tarjeta ni suscripción: después de 7 días vuelve a ser gratis sola.', 'Ohne Karte und ohne Abo: nach 7 Tagen wird sie von selbst wieder kostenlos.', 'بدون بطاقة وبدون اشتراك: بعد 7 أيام تعود مجانية وحدها.'],
     out = exact[ix];
   } else {
     _patterns ??= [
