@@ -56,7 +56,7 @@ Future<UpdateInfo?> findUpdate() async {
     final pro = Pro.i.isProPackage;
     final list = pro
         ? [...await _releases(_appsRepo, 'radio-pro-build-'), ...await _releases(_repo, 'pro-build-')]
-        : await _releases(_appsRepo, 'radio-build-');
+        : [...await _releases(_appsRepo, 'radio-build-'), ...await _releases(_repo, 'build-')];
     if (list.isEmpty) return null;
     var is64 = true;
     try {
