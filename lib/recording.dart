@@ -245,7 +245,11 @@ class RecController extends ChangeNotifier {
       }
     }
     if (!recording) return;
-    if (p.current?.id != station!.id || !p.wantsPlay) stopAndSave();
+    if (p.current?.id != station!.id) {
+      stopAndSave();
+    } else if (!p.wantsPlay) {
+      stopAndSave(why: 'La radio si è fermata, registrazione chiusa');
+    }
   }
 
   Future<void> start() async {
@@ -301,7 +305,7 @@ class RecController extends ChangeNotifier {
       bytes = (st['bytes'] as num?)?.toInt() ?? bytes;
       final err = st['error'] as String?;
       if (st['running'] == false) {
-        await stopAndSave(why: err);
+        await stopAndSave(why: err ?? 'La radio ha chiuso il collegamento');
         return;
       }
       // versione gratuita: massimo 15 minuti per registrazione, poi salva e propone Pro

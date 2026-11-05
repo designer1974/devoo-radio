@@ -95,7 +95,7 @@ Future<void> checkForUpdateNow(BuildContext context) async {
     m.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text('Hai già l\'ultima versione')));
     return;
   }
-  showModalBottomSheet(context: context, isDismissible: true, showDragHandle: true, builder: (_) => UpdateSheet(info: u));
+  showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, showDragHandle: true, builder: (_) => UpdateSheet(info: u));
 }
 
 /// All'avvio: se c'è una versione nuova, la propone (una volta per versione).
@@ -109,7 +109,8 @@ Future<void> checkForUpdate(BuildContext context) async {
   if (!context.mounted) return;
   showModalBottomSheet(
     context: context,
-    isDismissible: true,
+    isDismissible: false,
+    enableDrag: false,
     showDragHandle: true,
     builder: (_) => UpdateSheet(info: u),
   );
@@ -149,7 +150,13 @@ class _UpdateSheetState extends State<UpdateSheet> {
     final client = _client = http.Client();
     try {
       final dir = await getTemporaryDirectory();
-      final f = File('${dir.path}/DevooRadioPro-update.apk');
+      final f = File('${dir.path}/DevooRadio-update-${widget.info.build}.apk');
+      _file = f;
+      // già scaricato prima (installazione chiusa per sbaglio): si riapre subito
+      if (widget.info.size > 0 && f.existsSync() && f.lengthSync() == widget.info.size) {
+        await _install();
+        return;
+      }
       final res = await client.send(http.Request('GET', Uri.parse(widget.info.url)))
           .timeout(const Duration(seconds: 30));
       if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
@@ -162,19 +169,37 @@ class _UpdateSheetState extends State<UpdateSheet> {
       }
       await sink.close();
       if (!mounted) return;
-      setState(() {
-        _p = 1;
-        _st = _St.installing;
-      });
-      final r = await _ch.invokeMethod<String>('installApk', {'path': f.path});
-      if (!mounted) return;
-      if (r != 'ok') throw Exception(r);
-      Navigator.of(context).maybePop();
+      await _install();
     } catch (e) {
       if (mounted) {
         setState(() {
           _st = _St.error;
           _msg = 'Download non riuscito. Controlla internet e riprova.';
+        });
+      }
+    }
+  }
+
+  File? _file;
+
+  /// Apre la finestra «Installa» di Android. Se si chiude per sbaglio, si riapre col pulsante
+  /// senza scaricare di nuovo.
+  Future<void> _install() async {
+    final f = _file;
+    if (f == null) return;
+    setState(() {
+      _p = 1;
+      _st = _St.installing;
+      _msg = null;
+    });
+    try {
+      final r = await _ch.invokeMethod<String>('installApk', {'path': f.path});
+      if (r != 'ok') throw Exception(r);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _st = _St.error;
+          _msg = 'Installazione non avviata. Riprova.';
         });
       }
     }
@@ -206,7 +231,7 @@ class _UpdateSheetState extends State<UpdateSheet> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('Nuova versione disponibile',
                       style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                  Text('Devoo Radio Pro build ${widget.info.build} · ${_mb(widget.info.size)} MB',
+                  Text('Devoo Radio build ${widget.info.build} · ${_mb(widget.info.size)} MB',
                       style: TextStyle(color: scheme.onSurfaceVariant)),
                 ]),
               ),
@@ -255,6 +280,27 @@ class _UpdateSheetState extends State<UpdateSheet> {
                     : '${_mb(_got)} di ${_mb(widget.info.size)} MB',
                 style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
               ),
+              if (_st == _St.installing) ...[
+                const SizedBox(height: 16),
+                Text('La finestra si è chiusa?', style: TextStyle(color: scheme.onSurfaceVariant)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: accent,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    icon: const Icon(Icons.install_mobile),
+                    label: const Text('Installa di nuovo',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                    onPressed: _install,
+                  ),
+                ),
+                Center(child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Chiudi'))),
+              ],
             ],
           ],
         ),
