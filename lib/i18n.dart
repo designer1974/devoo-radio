@@ -129,6 +129,9 @@ class Text extends m.StatelessWidget {
 
 /// Italiano → [inglese, francese, spagnolo, tedesco, arabo]
 const Map<String, List<String>> _dict = {
+  'Questa radio usa un formato (HLS) che non si può registrare': ['This station uses a format (HLS) that cannot be recorded', 'Cette radio utilise un format (HLS) qui ne peut pas être enregistré', 'Esta radio usa un formato (HLS) que no se puede grabar', 'Dieser Sender nutzt ein Format (HLS), das nicht aufgenommen werden kann', 'هذه الإذاعة تستخدم صيغة (HLS) لا يمكن تسجيلها'],
+  'Questa radio è protetta e non si può registrare': ['This station is protected and cannot be recorded', 'Cette radio est protégée et ne peut pas être enregistrée', 'Esta radio está protegida y no se puede grabar', 'Dieser Sender ist geschützt und kann nicht aufgenommen werden', 'هذه الإذاعة محمية ولا يمكن تسجيلها'],
+  'Connessione alla radio persa': ['Connection to the station lost', 'Connexion à la radio perdue', 'Conexión con la radio perdida', 'Verbindung zum Sender verloren', 'انقطع الاتصال بالإذاعة'],
   'Registrazione salvata': ['Recording saved', 'Enregistrement sauvegardé', 'Grabación guardada', 'Aufnahme gespeichert', 'تم حفظ التسجيل'],
   'Cerca aggiornamenti': ['Check for updates', 'Rechercher des mises à jour', 'Buscar actualizaciones', 'Nach Updates suchen', 'البحث عن تحديثات'],
   'Cerco aggiornamenti…': ['Checking for updates…', 'Recherche de mises à jour…', 'Buscando actualizaciones…', 'Suche nach Updates…', 'جارٍ البحث عن تحديثات…'],

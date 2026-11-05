@@ -301,8 +301,7 @@ class RecController extends ChangeNotifier {
       bytes = (st['bytes'] as num?)?.toInt() ?? bytes;
       final err = st['error'] as String?;
       if (st['running'] == false) {
-        if (err != null) _messages.add(err);
-        await stopAndSave();
+        await stopAndSave(why: err);
         return;
       }
       // versione gratuita: massimo 15 minuti per registrazione, poi salva e propone Pro
@@ -315,7 +314,8 @@ class RecController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> stopAndSave() async {
+  /// [why]: perché si è fermata da sola (errore della radio), mostrato al posto di «troppo corta».
+  Future<void> stopAndSave({String? why}) async {
     if (!recording) return;
     _poll?.cancel();
     saving = 0; // la compressione è già fatta: resta solo l'ultimo pezzo
@@ -324,8 +324,9 @@ class RecController extends ChangeNotifier {
       final path = await Recorder.streamStop();
       final f = path == null ? null : File(path);
       if (f == null || !f.existsSync() || f.lengthSync() < 2000) {
-        _messages.add('Registrazione troppo corta, non salvata');
+        _messages.add(why ?? 'Registrazione troppo corta, non salvata');
       } else {
+        if (why != null) _messages.add(why);
         _messages.add('Salvata in Registrate · ${fmtSize(f.lengthSync())}');
       }
     } catch (_) {

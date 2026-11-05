@@ -221,6 +221,34 @@ object StreamRecorder {
         throw IllegalStateException("Troppi reindirizzamenti")
     }
 
+    private fun isHls(type: String, url: String): Boolean {
+        val t = type.lowercase()
+        val u = url.lowercase().substringBefore('?')
+        return t.contains("mpegurl") || u.endsWith(".m3u8")
+    }
+
+    /** Formato dei pezzi HLS. null = non registrabile (fMP4). */
+    private fun segExtFor(type: String, url: String): String? {
+        val t = type.lowercase()
+        val u = url.lowercase().substringBefore('?')
+        return when {
+            t.contains("mp2t") || u.endsWith(".ts") -> "ts"
+            u.endsWith(".m4s") || u.endsWith(".mp4") || t.contains("mp4") -> null
+            t.contains("aac") || u.endsWith(".aac") -> "aac"
+            t.contains("mpeg") || u.endsWith(".mp3") -> "mp3"
+            else -> "ts"
+        }
+    }
+
+    /** Lunghezza del tag ID3 all'inizio dei pezzi audio HLS (0 se non c'è). */
+    private fun id3Size(b: ByteArray): Int {
+        if (b.size < 10 || b[0] != 'I'.code.toByte() || b[1] != 'D'.code.toByte() || b[2] != '3'.code.toByte()) return 0
+        val n = ((b[6].toInt() and 0x7F) shl 21) or ((b[7].toInt() and 0x7F) shl 14) or
+            ((b[8].toInt() and 0x7F) shl 7) or (b[9].toInt() and 0x7F)
+        val footer = if (b[5].toInt() and 0x10 != 0) 10 else 0
+        return (10 + n + footer).coerceAtMost(b.size)
+    }
+
     private fun extFor(type: String, url: String): String? {
         val t = type.lowercase()
         val u = url.lowercase().substringBefore('?')
@@ -279,12 +307,131 @@ object StreamRecorder {
             chunk = null
         }
 
+        fun fetchText(u: String): Pair<String, String> {
+            val cc = open(u)
+            conn = cc
+            try {
+                return cc.url.toString() to cc.inputStream.bufferedReader().use { it.readText() }
+            } finally {
+                try { cc.disconnect() } catch (_: Exception) {}
+            }
+        }
+
+        fun resolve(base: String, ref: String): String = URL(URL(base), ref.trim()).toString()
+
+        /** HLS: legge la playlist, scarica i pezzi nuovi e li unisce nei pezzi da 30 secondi. */
+        fun hlsLoop(firstUrl: String, firstText: String) {
+            var plUrl = firstUrl
+            var text = firstText
+            if (text.contains("#EXT-X-STREAM-INF")) {
+                // più qualità: si prende la migliore
+                val lines = text.lines().map { it.trim() }
+                var best = -1L
+                var pick: String? = null
+                for (i in lines.indices) {
+                    if (!lines[i].startsWith("#EXT-X-STREAM-INF")) continue
+                    val bw = Regex("BANDWIDTH=(\\d+)").find(lines[i])?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                    val next = lines.drop(i + 1).firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: continue
+                    if (bw > best) { best = bw; pick = next }
+                }
+                val p = pick ?: throw IllegalArgumentException("Questa radio usa un formato (HLS) che non si può registrare")
+                val r = fetchText(resolve(plUrl, p))
+                plUrl = r.first
+                text = r.second
+            }
+            var lastSeq = Long.MIN_VALUE
+            var segExt: String? = null
+            var hlsFails = 0
+            while (running) {
+                val t0 = System.currentTimeMillis()
+                var target = 6L
+                try {
+                    if (text.contains("#EXT-X-MAP")) {
+                        throw IllegalArgumentException("Questa radio usa un formato (HLS) che non si può registrare")
+                    }
+                    val key = Regex("#EXT-X-KEY:.*METHOD=([A-Z0-9-]+)").find(text)?.groupValues?.get(1)
+                    if (key != null && key != "NONE") {
+                        throw IllegalArgumentException("Questa radio è protetta e non si può registrare")
+                    }
+                    target = Regex("#EXT-X-TARGETDURATION:(\\d+)").find(text)?.groupValues?.get(1)?.toLongOrNull() ?: 6L
+                    val seq0 = Regex("#EXT-X-MEDIA-SEQUENCE:(\\d+)").find(text)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                    val segs = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+                    // alla partenza: gli ultimi 3 pezzi, cioè quello che si sta ascoltando
+                    if (lastSeq == Long.MIN_VALUE) lastSeq = seq0 + segs.size - 4
+                    for ((k, sref) in segs.withIndex()) {
+                        val seq = seq0 + k
+                        if (seq <= lastSeq) continue
+                        if (!running) break
+                        if (System.currentTimeMillis() >= stopAt) { running = false; onTimeUp?.invoke(); break }
+                        val sc = open(resolve(plUrl, sref))
+                        conn = sc
+                        try {
+                            if (segExt == null) {
+                                segExt = segExtFor(sc.contentType ?: "", sc.url.toString())
+                                    ?: throw IllegalArgumentException("Questa radio usa un formato (HLS) che non si può registrare")
+                                ext = segExt!!
+                            }
+                            val data = sc.inputStream.use { it.readBytes() }
+                            val skip = id3Size(data)
+                            if (data.size > skip) {
+                                if (out == null) newChunk()
+                                out!!.write(data, skip, data.size - skip)
+                                bytes += data.size - skip
+                            }
+                        } finally {
+                            try { sc.disconnect() } catch (_: Exception) {}
+                        }
+                        lastSeq = seq
+                        hlsFails = 0
+                        if (out != null && System.currentTimeMillis() - chunkStart > CHUNK_MS) {
+                            closeChunk()
+                            newChunk()
+                        }
+                    }
+                    if (text.contains("#EXT-X-ENDLIST")) { running = false; break }
+                } catch (e: IllegalArgumentException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (!running) break
+                    Log.w(TAG, "HLS: pezzo non scaricato, riprovo", e)
+                    if (++hlsFails > 15) {
+                        error = "Connessione alla radio persa"
+                        running = false
+                        break
+                    }
+                }
+                // nuova lettura della playlist dopo metà della durata di un pezzo
+                var w = (target * 500L - (System.currentTimeMillis() - t0)).coerceAtLeast(500L)
+                while (running && w > 0) { Thread.sleep(minOf(w, 250L)); w -= 250L }
+                if (!running) break
+                try {
+                    text = fetchText(plUrl).second
+                } catch (e: Exception) {
+                    if (!running) break
+                    Log.w(TAG, "HLS: playlist non letta, riprovo", e)
+                    if (++hlsFails > 15) {
+                        error = "Connessione alla radio persa"
+                        running = false
+                        break
+                    }
+                    Thread.sleep(2000)
+                }
+            }
+        }
+
         try {
             while (running) {
                 var input: InputStream? = null
                 try {
                     val c = open(url)
                     conn = c
+                    // radio HLS (playlist .m3u8): si scaricano i pezzi uno dopo l'altro
+                    if (isHls(c.contentType ?: "", c.url.toString())) {
+                        val first = c.url.toString()
+                        val text = c.inputStream.bufferedReader().use { it.readText() }
+                        hlsLoop(first, text)
+                        break
+                    }
                     if (out == null) {
                         ext = extFor(c.contentType ?: "", c.url.toString())
                             ?: throw IllegalArgumentException("Questa radio usa un formato (HLS) che non si può registrare")
