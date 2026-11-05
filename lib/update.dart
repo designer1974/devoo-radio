@@ -132,8 +132,11 @@ class _UpdateSheetState extends State<UpdateSheet> {
   String? _msg;
   http.Client? _client;
 
+  Timer? _watch;
+
   @override
   void dispose() {
+    _watch?.cancel();
     _client?.close();
     super.dispose();
   }
@@ -195,6 +198,7 @@ class _UpdateSheetState extends State<UpdateSheet> {
     try {
       final r = await _ch.invokeMethod<String>('installApk', {'path': f.path});
       if (r != 'ok') throw Exception(r);
+      _watchResult();
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -203,6 +207,31 @@ class _UpdateSheetState extends State<UpdateSheet> {
         });
       }
     }
+  }
+
+  /// Esito dell'installazione: se Android non l'ha fatta, lo dice e si può riprovare.
+  void _watchResult() {
+    _watch?.cancel();
+    _watch = Timer.periodic(const Duration(seconds: 1), (t) async {
+      Map? m;
+      try {
+        m = await _ch.invokeMethod<Map>('installStatus');
+      } catch (_) {}
+      final st = (m?['status'] as num?)?.toInt() ?? -100;
+      // -100 attesa, -1 finestra «Installa» aperta, 0 fatto (l'app si riavvia)
+      if (st == -100 || st == -1 || st == 0 || !mounted) return;
+      t.cancel();
+      setState(() {
+        _st = _St.error;
+        _msg = switch (st) {
+          3 => 'Installazione annullata. Tocca «Riprova» e poi «Installa».',
+          2 => 'Il telefono ha bloccato l\'installazione. Scarica la nuova versione dal sito devoo.it.',
+          4 || 5 || 7 => 'Questa versione non può sostituire quella installata. Scaricala dal sito devoo.it.',
+          6 => 'Spazio insufficiente sul telefono.',
+          _ => 'Installazione non riuscita. Riprova o scarica la versione dal sito devoo.it.',
+        };
+      });
+    });
   }
 
   Future<void> _later() async {

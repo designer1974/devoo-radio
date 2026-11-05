@@ -160,6 +160,10 @@ class MainActivity : AudioServiceActivity() {
                     "installedAt" -> result.success(
                         try { packageManager.getPackageInfo(packageName, 0).lastUpdateTime } catch (_: Exception) { 0L }
                     )
+                    "installStatus" -> {
+                        val p = getSharedPreferences("devoo_update", MODE_PRIVATE)
+                        result.success(mapOf("status" to p.getInt("status", -100), "msg" to (p.getString("msg", "") ?: "")))
+                    }
                     "installApk" -> Thread {
                         val r = try { installApk(call.argument<String>("path")!!); "ok" } catch (e: Exception) { e.message ?: "errore" }
                         runOnUiThread { result.success(r) }
@@ -233,6 +237,7 @@ class MainActivity : AudioServiceActivity() {
      */
     private fun installApk(path: String) {
         val f = java.io.File(path)
+        getSharedPreferences("devoo_update", MODE_PRIVATE).edit().putInt("status", -100).putString("msg", "").commit()
         val pi = packageManager.packageInstaller
         val params = android.content.pm.PackageInstaller.SessionParams(
             android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL

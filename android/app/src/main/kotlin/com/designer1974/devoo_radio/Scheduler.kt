@@ -496,6 +496,13 @@ class ScheduledRecService : Service() {
 class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999)
+        // l'app legge l'esito e, se non è andata, propone di riprovare
+        try {
+            context.getSharedPreferences("devoo_update", Context.MODE_PRIVATE).edit()
+                .putInt("status", status)
+                .putString("msg", intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "")
+                .apply()
+        } catch (_: Exception) {}
         if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
             @Suppress("DEPRECATION")
             val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
