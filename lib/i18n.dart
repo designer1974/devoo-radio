@@ -129,6 +129,7 @@ class Text extends m.StatelessWidget {
 
 /// Italiano → [inglese, francese, spagnolo, tedesco, arabo]
 const Map<String, List<String>> _dict = {
+  'Registrazione salvata': ['Recording saved', 'Enregistrement sauvegardé', 'Grabación guardada', 'Aufnahme gespeichert', 'تم حفظ التسجيل'],
   'Cerca aggiornamenti': ['Check for updates', 'Rechercher des mises à jour', 'Buscar actualizaciones', 'Nach Updates suchen', 'البحث عن تحديثات'],
   'Cerco aggiornamenti…': ['Checking for updates…', 'Recherche de mises à jour…', 'Buscando actualizaciones…', 'Suche nach Updates…', 'جارٍ البحث عن تحديثات…'],
   'Hai già l\'ultima versione': ['You already have the latest version', 'Vous avez déjà la dernière version', 'Ya tienes la última versión', 'Du hast bereits die neueste Version', 'لديك آخر نسخة بالفعل'],
@@ -236,7 +237,7 @@ const Map<String, List<String>> _dict = {
   'Registrazione programmata salvata in Registrate': ['Scheduled recording saved in Recordings', 'Enregistrement programmé sauvegardé', 'Grabación programada guardada en Grabaciones', 'Geplante Aufnahme in Aufnahmen gespeichert', 'حُفظ التسجيل المجدول في التسجيلات'],
   'Registrazione interrotta recuperata ✔': ['Interrupted recording recovered ✔', 'Enregistrement interrompu récupéré ✔', 'Grabación interrumpida recuperada ✔', 'Unterbrochene Aufnahme wiederhergestellt ✔', 'تم استرجاع التسجيل المتوقف ✔'],
   '{} registrazioni interrotte recuperate ✔': ['{} interrupted recordings recovered ✔', '{} enregistrements interrompus récupérés ✔', '{} grabaciones interrumpidas recuperadas ✔', '{} unterbrochene Aufnahmen wiederhergestellt ✔', 'تم استرجاع {} تسجيلات متوقفة ✔'],
-  'Registrazione salvata (10 minuti). Con Pro registri senza limiti.': ['Recording saved (10 minutes). With Pro you record without limits.', 'Enregistrement sauvegardé (10 minutes). Avec Pro, enregistre sans limite.', 'Grabación guardada (10 minutos). Con Pro grabas sin límites.', 'Aufnahme gespeichert (10 Minuten). Mit Pro ohne Limit aufnehmen.', 'حُفظ التسجيل (10 دقائق). مع Pro سجّل بلا حدود.'],
+  'Nella versione gratuita ogni registrazione dura al massimo 15 minuti. La trovi in Registrate. Per registrare di più passa a Pro.': ['In the free version each recording lasts up to 15 minutes. You will find it in Recordings. To record longer, go Pro.', 'Dans la version gratuite, chaque enregistrement dure au maximum 15 minutes. Vous le trouvez dans Enregistrements. Pour enregistrer plus, passez à Pro.', 'En la versión gratuita cada grabación dura como máximo 15 minutos. La encuentras en Grabaciones. Para grabar más, pásate a Pro.', 'In der Gratisversion dauert jede Aufnahme höchstens 15 Minuten. Du findest sie unter Aufnahmen. Für längere Aufnahmen wechsle zu Pro.', 'في النسخة المجانية يستمر كل تسجيل 15 دقيقة كحد أقصى. ستجده في التسجيلات. لتسجيل مدة أطول انتقل إلى Pro.'],
   // qualità
   'Voce  ★ consigliata': ['Voice  ★ recommended', 'Voix  ★ conseillée', 'Voz  ★ recomendada', 'Sprache  ★ empfohlen', 'صوت  ★ موصى به'],
   'Minima': ['Minimum', 'Minimale', 'Mínima', 'Minimal', 'أدنى'],

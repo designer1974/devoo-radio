@@ -13,6 +13,7 @@ import 'recordings_page.dart';
 import 'schedule.dart';
 import 'search_page.dart';
 import 'ads.dart';
+import 'paywall.dart';
 import 'ping.dart';
 import 'pro.dart';
 import 'store.dart';
@@ -109,6 +110,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   StreamSubscription<String>? _errors;
   StreamSubscription<String>? _recMsgs;
+  StreamSubscription<void>? _recLimit;
   // tornando nell'app: aggiorna registrazioni e programmi (possono essere finiti ad app chiusa)
   late final AppLifecycleListener _life = AppLifecycleListener(onResume: () {
     Recordings.i.reload();
@@ -119,6 +121,7 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _recMsgs = RecController.i.messages.listen(_snack);
+    _recLimit = RecController.i.limitReached.listen((_) => _limitPopup());
     _life.hashCode; // avvia l'ascolto
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Diag.showIfAny(context);
@@ -135,6 +138,27 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  /// Fine dei 15 minuti gratis: la registrazione è salvata, chi vuole di più passa a Pro.
+  Future<void> _limitPopup() async {
+    final ctx = appNavigatorKey.currentContext;
+    if (ctx == null) return;
+    final go = await showDialog<bool>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        icon: const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
+        title: Text(tr('Registrazione salvata')),
+        content: Text(tr('Nella versione gratuita ogni registrazione dura al massimo 15 minuti. '
+            'La trovi in Registrate. Per registrare di più passa a Pro.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('Chiudi'))),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('Passa a Pro'))),
+        ],
+      ),
+    );
+    final ctx2 = appNavigatorKey.currentContext;
+    if (go == true && ctx2 != null && ctx2.mounted) await openPaywall(ctx2);
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -146,6 +170,7 @@ class _HomeShellState extends State<HomeShell> {
   void dispose() {
     _life.dispose();
     _recMsgs?.cancel();
+    _recLimit?.cancel();
     _errors?.cancel();
     super.dispose();
   }

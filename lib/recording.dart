@@ -130,6 +130,10 @@ class RecController extends ChangeNotifier {
   final _messages = StreamController<String>.broadcast();
   Stream<String> get messages => _messages.stream;
 
+  /// Versione gratuita: la registrazione ha raggiunto il limite ed è stata salvata.
+  final _limit = StreamController<void>.broadcast();
+  Stream<void> get limitReached => _limit.stream;
+
   bool get recording => station != null && saving == null;
 
   // ---- registrazione programmata in corso (fatta dal servizio Android) ----
@@ -301,10 +305,10 @@ class RecController extends ChangeNotifier {
         await stopAndSave();
         return;
       }
-      // versione gratuita: massimo 10 minuti per registrazione
+      // versione gratuita: massimo 15 minuti per registrazione, poi salva e propone Pro
       if (!Pro.i.isPro && elapsed >= Pro.freeRecLimit) {
         await stopAndSave();
-        _messages.add('Registrazione salvata (10 minuti). Con Pro registri senza limiti.');
+        _limit.add(null);
         return;
       }
     } catch (_) {}

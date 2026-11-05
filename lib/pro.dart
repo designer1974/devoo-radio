@@ -23,7 +23,7 @@ class Pro extends ChangeNotifier {
   static const _ch = MethodChannel('rr/recorder');
 
   /// Limite di registrazione della versione gratuita.
-  static const freeRecLimit = Duration(minutes: 10);
+  static const freeRecLimit = Duration(minutes: 15);
   static const trialDays = 7;
   static const graceDays = 3;
   static const warnDays = 7;
