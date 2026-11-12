@@ -22,6 +22,10 @@ dependencies:
   audioplayers: ^6.1.0
   share_plus: ^10.1.4
   google_mobile_ads: any
+  flutter_tts: any
+  whisper_ggml: any
+  google_mlkit_language_id: any
+  google_mlkit_translation: any
 
 dev_dependencies:
   flutter_test:

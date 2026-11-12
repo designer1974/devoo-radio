@@ -9,8 +9,10 @@ import 'paywall.dart';
 import 'player.dart';
 import 'pro.dart';
 import 'recorder.dart';
+import 'reader_page.dart';
 import 'recording.dart';
 import 'schedule.dart';
+import 'transcript.dart' show moveTranscript, deleteTranscript;
 import 'widgets.dart';
 import 'i18n.dart';
 
@@ -66,6 +68,20 @@ class _RecordingsPageState extends State<RecordingsPage> {
     }
   }
 
+  Future<void> _read(RecFile r) async {
+    if (_playing != null) await _stopLocal();
+    await RadioPlayer.i.stop(); // non due audio insieme
+    if (!mounted) return;
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => ReaderPage(
+                path: r.file.path,
+                name: r.title.isEmpty ? r.name : r.title,
+                flag: r.flag,
+                duration: r.duration)));
+  }
+
   Future<void> _rename(RecFile r) async {
     final ctrl = TextEditingController(text: r.name);
     final res = await showDialog<String>(
@@ -96,6 +112,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
     try {
       final dst = await Recordings.i.uniquePath(name, r.ext, except: r.file.path);
       await r.file.rename(dst);
+      await moveTranscript(r.file.path, dst);
     } catch (_) {
       _snack('Rinomina non riuscita');
     }
@@ -142,6 +159,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
     if (_playing == r.file.path) await _stopLocal();
     try {
       await r.file.delete();
+      await deleteTranscript(r.file.path);
     } catch (_) {}
     await Recordings.i.reload();
   }
@@ -324,12 +342,18 @@ class _RecordingsPageState extends State<RecordingsPage> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'read') _read(r);
               if (v == 'edit') _edit(r);
               if (v == 'rename') _rename(r);
               if (v == 'share') _share(r);
               if (v == 'delete') _delete(r);
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                  value: 'read',
+                  child: ListTile(
+                      leading: Icon(Icons.menu_book_rounded, color: accent),
+                      title: Text('Leggi e traduci'))),
               PopupMenuItem(
                   value: 'edit',
                   child: ListTile(leading: Icon(Icons.content_cut), title: Text('Modifica / taglia'))),

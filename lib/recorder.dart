@@ -129,6 +129,16 @@ class Recorder {
               }),
           progress);
 
+  /// Un pezzo della registrazione -> WAV 16 kHz mono (per la trascrizione).
+  /// Restituisce il millisecondo reale da cui parte il WAV.
+  static Future<int> toWav16k(String src, String dst,
+          {int startMs = 0, int endMs = 0, void Function(double)? progress}) async =>
+      (await _withProgress<Object>(
+              () => _ch.invokeMethod('toWav16k', {'src': src, 'dst': dst, 'start': startMs, 'end': endMs}),
+              progress) as num?)
+          ?.toInt() ??
+      startMs;
+
   /// M4A -> WAV (per modificare).
   static Future<void> toWav(String src, String dst, {void Function(double)? progress}) =>
       _withProgress(() => _ch.invokeMethod('toWav', {'src': src, 'dst': dst}), progress);

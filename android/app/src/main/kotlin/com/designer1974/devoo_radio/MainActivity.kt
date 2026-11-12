@@ -216,6 +216,19 @@ class MainActivity : AudioServiceActivity() {
                             report,
                         )
                     }
+                    "toWav16k" -> Thread {
+                        try {
+                            val ms = AudioTools.toWav16k(
+                                call.argument<String>("src")!!,
+                                call.argument<String>("dst")!!,
+                                (call.argument<Number>("start") ?: 0).toLong(),
+                                (call.argument<Number>("end") ?: 0).toLong(),
+                            ) { p -> runOnUiThread { channel?.invokeMethod("progress", p) } }
+                            runOnUiThread { result.success(ms) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.error("CODEC", e.message ?: "Errore audio", null) }
+                        }
+                    }.start()
                     "toWav" -> background(result) { report ->
                         AudioTools.toWav(
                             call.argument<String>("src")!!,

@@ -296,6 +296,127 @@ object AudioTools {
         }
     }
 
+    /**
+     * Un pezzo [startMs, endMs] di qualsiasi registrazione -> WAV 16 kHz mono 16 bit (per Whisper).
+     * Mescola i canali e ricampiona mentre decodifica: anche da registrazioni di ore
+     * il file resta piccolo. Restituisce il millisecondo reale da cui parte il WAV.
+     */
+    fun toWav16k(src: String, dst: String, startMs: Long, endMs: Long, progress: (Double) -> Unit): Long {
+        val ex = MediaExtractor()
+        ex.setDataSource(src)
+        var t = -1
+        for (i in 0 until ex.trackCount) {
+            val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: ""
+            if (mime.startsWith("audio/")) { t = i; break }
+        }
+        if (t < 0) { ex.release(); throw IllegalStateException("Nessuna traccia audio") }
+        ex.selectTrack(t)
+        val fmt = ex.getTrackFormat(t)
+        var rate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        var ch = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        val startUs = startMs * 1000
+        val endUs = if (endMs <= 0) Long.MAX_VALUE else endMs * 1000
+        if (startUs > 0) ex.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        val dec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
+        dec.configure(fmt, null, null, 0)
+        dec.start()
+        val out = java.io.BufferedOutputStream(java.io.FileOutputStream(File(dst)), 1 shl 16)
+        out.write(ByteArray(44))
+        val info = MediaCodec.BufferInfo()
+        var tmp = ByteArray(0)
+        var total = 0L
+        var inDone = false
+        var outDone = false
+        var firstUs = -1L
+        var lastReport = 0L
+        // ricampionamento lineare continuo
+        var pos = 0.0          // posizione (in campioni d'ingresso) del prossimo campione d'uscita
+        var base = 0L          // indice del primo campione del blocco corrente
+        var prev = 0.0
+        val span = (if (endMs > 0) endUs - startUs else 0L).coerceAtLeast(1)
+        try {
+            while (!outDone) {
+                if (!inDone) {
+                    val i = dec.dequeueInputBuffer(10_000)
+                    if (i >= 0) {
+                        val b = dec.getInputBuffer(i)!!
+                        val n = ex.readSampleData(b, 0)
+                        if (n < 0 || ex.sampleTime > endUs + 500_000) {
+                            dec.queueInputBuffer(i, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inDone = true
+                        } else {
+                            dec.queueInputBuffer(i, 0, n, ex.sampleTime, 0)
+                            ex.advance()
+                        }
+                    }
+                }
+                val o = dec.dequeueOutputBuffer(info, 10_000)
+                if (o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val f = dec.outputFormat
+                    rate = f.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    ch = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                } else if (o >= 0) {
+                    val b = dec.getOutputBuffer(o)!!
+                    val pts = info.presentationTimeUs
+                    if (info.size > 0 && pts + 200_000 >= startUs && pts <= endUs) {
+                        if (tmp.size < info.size) tmp = ByteArray(info.size)
+                        b.position(info.offset)
+                        b.get(tmp, 0, info.size)
+                        val frames = info.size / (2 * ch)
+                        // salta l'inizio del primo blocco se parte prima di startUs
+                        var skip = 0
+                        if (firstUs < 0) {
+                            if (pts < startUs) skip = (((startUs - pts) * rate) / 1_000_000).toInt().coerceIn(0, frames)
+                            firstUs = pts + skip * 1_000_000L / rate
+                        }
+                        val ratio = rate / 16000.0
+                        val mono = DoubleArray(frames - skip)
+                        for (f in skip until frames) {
+                            var sum = 0
+                            for (c in 0 until ch) {
+                                val k = (f * ch + c) * 2
+                                sum += ((tmp[k].toInt() and 0xff) or (tmp[k + 1].toInt() shl 8))
+                            }
+                            mono[f - skip] = sum.toDouble() / ch
+                        }
+                        val n = mono.size
+                        val bytes = java.io.ByteArrayOutputStream(n * 2 / ratio.toInt().coerceAtLeast(1) + 16)
+                        while (pos < base + n) {
+                            val idx = pos - base
+                            val i0 = Math.floor(idx).toInt()
+                            val fr = idx - i0
+                            val a = if (i0 >= 0) mono[i0] else prev
+                            val c2 = if (i0 + 1 < n) mono[i0 + 1] else mono[n - 1]
+                            val v = (a + (c2 - a) * fr).toInt().coerceIn(-32768, 32767)
+                            bytes.write(v and 0xff); bytes.write((v shr 8) and 0xff)
+                            pos += ratio
+                        }
+                        if (n > 0) prev = mono[n - 1]
+                        base += n
+                        val arr = bytes.toByteArray()
+                        out.write(arr)
+                        total += arr.size
+                        if (pts - lastReport > 3_000_000) {
+                            lastReport = pts
+                            progress(if (endMs > 0) ((pts - startUs).toDouble() / span).coerceIn(0.0, 1.0) else 0.0)
+                        }
+                    }
+                    dec.releaseOutputBuffer(o, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 || pts > endUs) outDone = true
+                }
+            }
+            out.flush()
+        } finally {
+            out.close()
+            try { dec.stop() } catch (_: Exception) {}
+            try { dec.release() } catch (_: Exception) {}
+            ex.release()
+        }
+        val raf = RandomAccessFile(File(dst), "rw")
+        try { writeWavHeader(raf, total, 1, 16000) } finally { raf.close() }
+        return if (firstUs < 0) startMs else firstUs / 1000
+    }
+
     fun writeWavHeader(f: RandomAccessFile, dataLen: Long, channels: Int, rate: Int) {
         val h = ByteArray(44)
         fun str(o: Int, s: String) { for (i in s.indices) h[o + i] = s[i].code.toByte() }

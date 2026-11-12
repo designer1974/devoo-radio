@@ -29,11 +29,21 @@ jobs:
           channel: stable
           cache: true
 
+      # NDK richiesto da Whisper (trascrizione sul telefono, codice C++)
+      - name: Installa NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;29.0.13113456" > /dev/null
+
       # Genera i file Android mancanti (gradle...) senza toccare i nostri
       - name: Prepara progetto Android
         run: |
           flutter create --platforms=android --org com.designer1974 --project-name devoo_radio .
           rm -f test/widget_test.dart
+          # Whisper e FFmpeg richiedono almeno Android 7 (API 24)
+          for f in android/app/build.gradle.kts android/app/build.gradle; do
+            [ -f "$f" ] && sed -i -E 's/minSdk( =|Version)? *flutter\.minSdkVersion/minSdk = 24/' "$f" && grep -n "minSdk" "$f" || true
+          done
 
       - name: Dipendenze
         run: |
