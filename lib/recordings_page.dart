@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart' hide Text;
+import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'editor.dart';
@@ -66,6 +68,44 @@ class _RecordingsPageState extends State<RecordingsPage> {
       setState(() => _playing = r.file.path);
     } catch (_) {
       _snack('Impossibile riprodurre il file');
+    }
+  }
+
+  /// Rimette nell'app registrazioni salvate altrove (es. prima di reinstallare).
+  Future<void> _import() async {
+    FilePickerResult? res;
+    try {
+      res = await FilePicker.platform.pickFiles(type: FileType.audio, allowMultiple: true);
+    } catch (_) {
+      return _snack('Impossibile aprire i file');
+    }
+    if (res == null || res.files.isEmpty) return;
+    var n = 0;
+    for (final f in res.files) {
+      final path = f.path;
+      if (path == null) continue;
+      final name = f.name;
+      final dot = name.lastIndexOf('.');
+      final base = dot > 0 ? name.substring(0, dot) : name;
+      final ext = dot > 0 ? name.substring(dot + 1).toLowerCase() : 'm4a';
+      try {
+        final dst = await Recordings.i.uniquePath(base, ext);
+        await File(path).copy(dst);
+        n++;
+      } catch (_) {}
+    }
+    await Recordings.i.reload();
+    _snack(n == 1 ? '1 registrazione importata' : '$n registrazioni importate');
+  }
+
+  /// Copia di sicurezza: manda tutte le registrazioni dove vuoi (File, Drive…).
+  Future<void> _exportAll() async {
+    final all = Recordings.i.items;
+    if (all.isEmpty) return _snack('Nessuna registrazione');
+    try {
+      await Share.shareXFiles([for (final r in all) XFile(r.file.path)], text: 'Registrazioni Devoo Radio');
+    } catch (_) {
+      _snack('Condivisione non riuscita');
     }
   }
 
@@ -269,6 +309,23 @@ class _RecordingsPageState extends State<RecordingsPage> {
                       tooltip: 'Qualità',
                       icon: const Icon(Icons.tune),
                       onPressed: _settings,
+                    ),
+                    PopupMenuButton<String>(
+                      onSelected: (v) {
+                        if (v == 'import') _import();
+                        if (v == 'export') _exportAll();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                            value: 'import',
+                            child: ListTile(
+                                leading: Icon(Icons.file_download_outlined),
+                                title: Text('Importa registrazioni'))),
+                        PopupMenuItem(
+                            value: 'export',
+                            child: ListTile(
+                                leading: Icon(Icons.ios_share), title: Text('Salva una copia di tutte'))),
+                      ],
                     ),
                   ],
                 ),

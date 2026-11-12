@@ -1,21 +1,19 @@
 // «Leggi e traduci»: il testo della registrazione come un libro.
-// Mentre si sente la voce, un'ombra passa sulle parole.
-//  · Originale: la voce vera della radio, parola per parola (per imparare a leggere).
-//  · Arabo:     la traduzione letta dalla voce araba del telefono, parola per parola.
-//  · Alterna:   frase originale, poi la stessa frase in arabo (come nel Corano del sito).
+// Si sente solo la voce vera della radio; mentre parla, un'ombra passa sulle parole
+// dell'originale e, insieme, sulla traduzione araba scritta.
+//  · Impara:     testo originale grande (per imparare a leggere), arabo sotto.
+//  · Traduzione: arabo grande, originale piccolo sopra.
 
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_tts/flutter_tts.dart';
-import 'package:google_mlkit_language_id/google_mlkit_language_id.dart';
-import 'package:google_mlkit_translation/google_mlkit_translation.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'i18n.dart' show tr;
 import 'transcript.dart';
+import 'translate_online.dart';
 import 'whisper_service.dart';
 import 'widgets.dart' show accent;
 
@@ -61,14 +59,7 @@ String guessLang(String? flag) {
   return 'auto';
 }
 
-TranslateLanguage? _ml(String code) {
-  for (final l in TranslateLanguage.values) {
-    if (l.bcpCode == code) return l;
-  }
-  return null;
-}
-
-enum ReadMode { original, translation, alternate }
+enum ReadMode { original, translation }
 
 class ReaderPage extends StatefulWidget {
   /// File audio; null = esempio spagnolo/arabo.
@@ -91,7 +82,6 @@ class ReaderPage extends StatefulWidget {
 class _ReaderPageState extends State<ReaderPage> {
   final _whisper = WhisperService();
   final _player = AudioPlayer();
-  final _tts = FlutterTts();
   final _keys = <GlobalKey>[];
 
   Transcript? _t;
@@ -111,16 +101,10 @@ class _ReaderPageState extends State<ReaderPage> {
   bool _slow = false;
   bool _playing = false;
   int _line = -1;
-  int _word = -1;
-  bool _phaseTr = false; // in «Alterna»: sta leggendo la traduzione
-  int _gen = 0; // ogni nuova lettura annulla la precedente
-  Completer<void>? _speech;
-  Completer<void>? _segment;
-  int _segmentEnd = 0;
-  List<int> _starts = []; // posizione di ogni parola nel testo letto dalla voce
-  Timer? _estimate;
-  bool _gotProgress = false;
-  final Map<String, String?> _voiceTag = {}; // lingua -> variante installata (es. ar-SA)
+  int _word = -1; // parola dell'originale sotto l'ombra
+  int _trWord = -1; // parola della traduzione sotto l'ombra
+  int _pos = 0; // ms
+  Timer? _demo; // esempio: nessun audio, il tempo scorre da solo
   StreamSubscription? _posSub, _doneSub;
 
   bool get _sample => widget.path == null;
@@ -137,15 +121,13 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<void> _init() async {
     try {
       final p = await SharedPreferences.getInstance();
-      _mode = ReadMode.values[(p.getInt('readMode') ?? 0).clamp(0, 2)];
+      _mode = ReadMode.values[(p.getInt('readMode') ?? 0).clamp(0, ReadMode.values.length - 1)];
       _slow = p.getBool('readSlow') ?? false;
     } catch (_) {}
     final t = _sample ? sampleTranscript() : await loadTranscript(widget.path!);
-    _setupTts();
-    _posSub = _player.onPositionChanged.listen(_onPos);
+    _posSub = _player.onPositionChanged.listen((d) => _onPos(d.inMilliseconds));
     _doneSub = _player.onPlayerComplete.listen((_) {
-      if (_mode == ReadMode.original && mounted) setState(() => _playing = false);
-      _segment?.complete();
+      if (mounted) setState(() => _playing = false);
     });
     if (!_sample) {
       try {
@@ -166,36 +148,12 @@ class _ReaderPageState extends State<ReaderPage> {
       ..addAll(List.generate(_t?.lines.length ?? 0, (_) => GlobalKey()));
   }
 
-  void _setupTts() {
-    void done() {
-      _estimate?.cancel();
-      final c = _speech;
-      _speech = null;
-      if (c != null && !c.isCompleted) c.complete();
-    }
-
-    _tts.setCompletionHandler(done);
-    _tts.setCancelHandler(done);
-    _tts.setErrorHandler((_) => done());
-    _tts.setProgressHandler((text, start, end, word) {
-      _gotProgress = true;
-      _estimate?.cancel();
-      var i = 0;
-      for (var k = 0; k < _starts.length; k++) {
-        if (_starts[k] <= start) i = k;
-      }
-      if (mounted && i != _word) setState(() => _word = i);
-    });
-  }
-
   @override
   void dispose() {
-    _gen++;
-    _estimate?.cancel();
+    _demo?.cancel();
     _posSub?.cancel();
     _doneSub?.cancel();
     _player.dispose();
-    _tts.stop();
     super.dispose();
   }
 
@@ -206,96 +164,47 @@ class _ReaderPageState extends State<ReaderPage> {
       ..showSnackBar(SnackBar(content: Text(s)));
   }
 
-  // ---------------- voce del telefono ----------------
-
-  Future<bool> _voice(String lang) async {
-    if (!_voiceTag.containsKey(lang)) {
-      String? found;
-      for (final l in lang == 'ar'
-          ? ['ar-SA', 'ar-EG', 'ar-AE', 'ar-XA', 'ar']
-          : lang == 'es'
-              ? ['es-ES', 'es-MX', 'es-US', 'es']
-              : [lang]) {
-        try {
-          if (await _tts.isLanguageAvailable(l) == true) {
-            found = l;
-            break;
-          }
-        } catch (_) {}
-      }
-      _voiceTag[lang] = found;
-    }
-    final tag = _voiceTag[lang];
-    if (tag == null) return false;
-    try {
-      await _tts.setLanguage(tag);
-    } catch (_) {}
-    return true;
-  }
-
-  /// Legge [text] con la voce di [lang] e muove l'ombra sulle parole.
-  Future<void> _say(String text, String lang, int gen) async {
-    if (!await _voice(lang)) {
-      _snack(tr('Manca la voce {} sul telefono: Impostazioni → Sintesi vocale → Google → Installa dati vocali.')
-          .replaceFirst('{}', _nameOf(lang)));
-      _gen++;
-      if (mounted) setState(() => _playing = false);
-      return;
-    }
-    if (gen != _gen) return;
-    await _tts.setSpeechRate(_slow ? 0.33 : 0.48);
-    // inizio di ogni parola nel testo
-    final starts = <int>[];
-    final re = RegExp(r'\S+');
-    for (final m in re.allMatches(text)) {
-      starts.add(m.start);
-    }
-    _starts = starts;
-    if (mounted) setState(() => _word = 0);
-    final c = Completer<void>();
-    _speech = c;
-    // se il motore vocale non dice a che parola è, stima il tempo
-    _estimate?.cancel();
-    if (!_gotProgress) {
-      final cps = (lang == 'ar' ? 11.0 : 14.0) * (_slow ? 0.7 : 1.0);
-      final t0 = DateTime.now();
-      _estimate = Timer.periodic(const Duration(milliseconds: 120), (_) {
-        if (_gotProgress) return _estimate?.cancel();
-        final ch = DateTime.now().difference(t0).inMilliseconds / 1000 * cps;
-        var i = 0;
-        for (var k = 0; k < starts.length; k++) {
-          if (starts[k] <= ch) i = k;
-        }
-        if (mounted && i != _word) setState(() => _word = i);
-      });
-    }
-    await _tts.speak(text);
-    await c.future.timeout(Duration(seconds: 8 + text.length ~/ 4), onTimeout: () {});
-    _estimate?.cancel();
-  }
-
   // ---------------- lettura ----------------
 
-  void _onPos(Duration d) {
+  /// Parole della traduzione di una frase.
+  List<String> _trWordsOf(int i) {
+    final trs = _trs;
+    if (trs == null || i < 0 || i >= trs.length) return const [];
+    return trs[i].split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  }
+
+  /// La traduzione non ha i tempi: l'ombra la percorre in proporzione
+  /// a quanto la radio è avanti nella frase.
+  int _trWordAt(int i, int ms) {
     final t = _t;
-    if (t == null || !mounted || _sample) return;
-    final ms = d.inMilliseconds;
-    if (_segment != null && ms >= _segmentEnd) {
-      final c = _segment!;
-      _segment = null;
-      _player.pause();
-      if (!c.isCompleted) c.complete();
-      return;
+    final words = _trWordsOf(i);
+    if (t == null || words.isEmpty) return -1;
+    final l = t.lines[i];
+    final span = (l.e - l.s).clamp(1, 1 << 30);
+    final f = ((ms - l.s) / span).clamp(0.0, 0.999);
+    final total = words.fold<int>(0, (a, w) => a + w.length + 1);
+    final target = f * total;
+    var acc = 0;
+    for (var k = 0; k < words.length; k++) {
+      acc += words[k].length + 1;
+      if (acc > target) return k;
     }
-    if (_mode == ReadMode.translation || (_mode == ReadMode.alternate && _phaseTr)) return;
+    return words.length - 1;
+  }
+
+  void _onPos(int ms) {
+    final t = _t;
+    if (t == null || !mounted) return;
+    _pos = ms;
     final i = lineAt(t.lines, ms);
     final w = i < 0 ? -1 : wordAt(t.lines[i], ms);
-    if (i != _line || w != _word) {
+    final tw = i < 0 ? -1 : _trWordAt(i, ms);
+    if (i != _line || w != _word || tw != _trWord) {
       final changed = i != _line;
       setState(() {
         _line = i;
         _word = w;
-        _phaseTr = false;
+        _trWord = tw;
       });
       if (changed) _scrollTo(i);
     }
@@ -309,116 +218,70 @@ class _ReaderPageState extends State<ReaderPage> {
         alignment: 0.25, duration: const Duration(milliseconds: 400), curve: Curves.easeOut);
   }
 
-  Future<void> _stopAll() async {
-    _gen++;
-    _estimate?.cancel();
-    _segment = null;
-    try {
-      await _tts.stop();
-    } catch (_) {}
+  Future<void> _pause() async {
+    _demo?.cancel();
     try {
       await _player.pause();
     } catch (_) {}
-  }
-
-  Future<void> _pause() async {
-    await _stopAll();
     if (mounted) setState(() => _playing = false);
   }
 
-  /// Parte dalla frase [i] (e, nell'originale, dalla parola [w]).
+  Future<void> _resume() async {
+    final t = _t;
+    if (t == null || t.lines.isEmpty) return;
+    setState(() => _playing = true);
+    if (_sample) {
+      _demo?.cancel();
+      final end = t.lines.last.e + 300;
+      var last = DateTime.now();
+      _demo = Timer.periodic(const Duration(milliseconds: 50), (tm) {
+        final now = DateTime.now();
+        final step = now.difference(last).inMilliseconds * (_slow ? 0.75 : 1.0);
+        last = now;
+        final ms = _pos + step.round();
+        if (ms >= end) {
+          tm.cancel();
+          _onPos(end);
+          if (mounted) setState(() => _playing = false);
+          _pos = 0;
+          return;
+        }
+        _onPos(ms);
+      });
+      return;
+    }
+    await _player.setPlaybackRate(_slow ? 0.75 : 1.0);
+    await _player.resume();
+  }
+
+  /// Va alla frase [i] (e alla parola [w]) e suona da lì.
   Future<void> _playFrom(int i, [int w = 0]) async {
     final t = _t;
     if (t == null || t.lines.isEmpty) return;
-    await _stopAll();
-    final g = _gen;
     i = i.clamp(0, t.lines.length - 1);
-    setState(() {
-      _playing = true;
-      _line = i;
-      _word = w;
-      _phaseTr = _mode == ReadMode.translation;
-    });
-    _scrollTo(i);
-
-    // Originale con la voce vera della radio: un unico ascolto continuo
-    if (_mode == ReadMode.original && !_sample) {
-      final l = t.lines[i];
-      final at = w > 0 && w < l.words.length ? l.words[w].s : l.s;
-      await _player.setPlaybackRate(_slow ? 0.75 : 1.0);
+    final l = t.lines[i];
+    final at = w > 0 && w < l.words.length ? l.words[w].s : l.s;
+    if (_sample) {
+      _onPos(at);
+    } else {
       await _player.seek(Duration(milliseconds: at));
-      await _player.resume();
-      return;
+      _onPos(at);
     }
-
-    for (var k = i; k < t.lines.length; k++) {
-      if (g != _gen || !mounted) return;
-      setState(() {
-        _line = k;
-        _word = 0;
-      });
-      _scrollTo(k);
-      if (_mode != ReadMode.translation) {
-        setState(() => _phaseTr = false);
-        if (_sample) {
-          await _say(t.lines[k].text, _src, g);
-        } else {
-          await _segmentPlay(t.lines[k], g);
-        }
-        if (g != _gen) return;
-      }
-      if (_mode != ReadMode.original) {
-        final trs = _trs;
-        if (trs != null && k < trs.length && trs[k].trim().isNotEmpty) {
-          setState(() => _phaseTr = true);
-          if (_mode == ReadMode.alternate) await Future.delayed(const Duration(milliseconds: 250));
-          if (g != _gen) return;
-          await _say(trs[k], _dst, g);
-        }
-        if (g != _gen) return;
-        await Future.delayed(const Duration(milliseconds: 350));
-      }
-    }
-    if (g == _gen && mounted) setState(() => _playing = false);
-  }
-
-  /// Suona solo la frase [l] della registrazione, poi si ferma.
-  Future<void> _segmentPlay(TLine l, int g) async {
-    final c = Completer<void>();
-    _segmentEnd = l.e + 250;
-    _segment = c;
-    await _player.setPlaybackRate(_slow ? 0.75 : 1.0);
-    await _player.seek(Duration(milliseconds: l.s));
-    if (g != _gen) return;
-    await _player.resume();
-    await c.future.timeout(Duration(milliseconds: (l.e - l.s) * 2 + 4000), onTimeout: () {});
+    await _resume();
   }
 
   Future<void> _toggle() async {
     if (_playing) return _pause();
-    if (_mode == ReadMode.original && !_sample && _line >= 0) {
-      // riprende da dove era
-      setState(() => _playing = true);
-      await _player.setPlaybackRate(_slow ? 0.75 : 1.0);
-      await _player.resume();
-      return;
-    }
-    await _playFrom(_line < 0 ? 0 : _line);
+    if (_line < 0) return _playFrom(0);
+    await _resume();
   }
 
   Future<void> _setMode(ReadMode m) async {
-    final wasPlaying = _playing;
-    await _stopAll();
-    setState(() {
-      _mode = m;
-      _playing = false;
-      _phaseTr = m == ReadMode.translation;
-      _word = -1;
-    });
+    setState(() => _mode = m);
+    _scrollTo(_line);
     try {
       (await SharedPreferences.getInstance()).setInt('readMode', m.index);
     } catch (_) {}
-    if (wasPlaying) _playFrom(_line < 0 ? 0 : _line);
   }
 
   Future<void> _setSlow(bool v) async {
@@ -426,11 +289,7 @@ class _ReaderPageState extends State<ReaderPage> {
     try {
       (await SharedPreferences.getInstance()).setBool('readSlow', v);
     } catch (_) {}
-    if (_playing && _mode == ReadMode.original && !_sample) {
-      await _player.setPlaybackRate(v ? 0.75 : 1.0);
-    } else if (_playing) {
-      _playFrom(_line);
-    }
+    if (_playing && !_sample) await _player.setPlaybackRate(v ? 0.75 : 1.0);
   }
 
   // ---------------- creazione del testo ----------------
@@ -438,7 +297,7 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<void> _create() async {
     final path = widget.path;
     if (path == null) return;
-    await _stopAll();
+    await _pause();
     setState(() {
       _working = true;
       _stage = tr('Preparo…');
@@ -464,7 +323,7 @@ class _ReaderPageState extends State<ReaderPage> {
         _snack(tr('Non ho sentito parlato in questo pezzo. Prova un altro minuto.'));
         return;
       }
-      if (t.lang.isEmpty) t.lang = await _detect(t.lines.map((l) => l.text).take(10).join(' ')) ?? 'es';
+      if (t.lang.isEmpty) t.lang = await OnlineTranslator.detect(t.lines.map((l) => l.text).take(10).join(' ')) ?? 'es';
       await saveTranscript(path, t);
       setState(() {
         _t = t;
@@ -478,56 +337,30 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  Future<String?> _detect(String text) async {
-    final id = LanguageIdentifier(confidenceThreshold: 0.3);
-    try {
-      final c = await id.identifyLanguage(text);
-      return c == 'und' ? null : c.split('-').first;
-    } catch (_) {
-      return null;
-    } finally {
-      id.close();
-    }
-  }
-
   Future<void> _translate() async {
     final t = _t;
     final path = widget.path;
     if (t == null || path == null) return;
-    final src = _ml(t.lang), dst = _ml(_dst);
-    if (src == null || dst == null) {
-      _snack(tr('Traduzione non disponibile per questa lingua'));
-      return;
-    }
+    final dst = _dst;
     setState(() {
       _working = true;
-      _progress = null;
+      _progress = 0;
+      _stage = '${tr('Traduco in')} ${_nameOf(dst)}…';
     });
-    final mgr = OnDeviceTranslatorModelManager();
     try {
-      for (final m in {src.bcpCode, dst.bcpCode}) {
-        if (m == 'en') continue;
-        if (!await mgr.isModelDownloaded(m)) {
-          setState(() => _stage = tr('Scarico il dizionario {} (circa 30 MB, solo la prima volta)…')
-              .replaceFirst('{}', _nameOf(m)));
-          await mgr.downloadModel(m, isWifiRequired: false);
+      final out = await OnlineTranslator.lines(t.lines.map((l) => l.text).toList(), t.lang, dst,
+          progress: (n) {
+        if (mounted) {
+          setState(() {
+            _stage = '${tr('Traduco in')} ${_nameOf(dst)}… $n/${t.lines.length}';
+            _progress = n / t.lines.length;
+          });
         }
-      }
-      final trl = OnDeviceTranslator(sourceLanguage: src, targetLanguage: dst);
-      final out = <String>[];
-      for (var i = 0; i < t.lines.length; i++) {
-        if (!mounted) break;
-        setState(() {
-          _stage = '${tr('Traduco in')} ${_nameOf(_dst)}… ${i + 1}/${t.lines.length}';
-          _progress = (i + 1) / t.lines.length;
-        });
-        out.add(await trl.translateText(t.lines[i].text));
-      }
-      await trl.close();
-      t.translations[_dst] = out;
+      });
+      t.translations[dst] = out;
       await saveTranscript(path, t);
-    } catch (e) {
-      _snack('${tr('Traduzione non riuscita')}: $e');
+    } catch (_) {
+      _snack(tr('Traduzione non riuscita: serve internet. Riprova con ⋮ → Traduci di nuovo.'));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -582,7 +415,7 @@ class _ReaderPageState extends State<ReaderPage> {
       ),
     );
     if (ok != true) return;
-    await _stopAll();
+    await _pause();
     await deleteTranscript(widget.path!);
     setState(() {
       _t = null;
@@ -781,7 +614,6 @@ class _ReaderPageState extends State<ReaderPage> {
                   label: Text('${_flagOf(_src)} ${tr('Impara')}', maxLines: 1)),
               ButtonSegment(
                   value: ReadMode.translation, label: Text('${_flagOf(_dst)} ${_nameOf(_dst)}', maxLines: 1)),
-              ButtonSegment(value: ReadMode.alternate, label: Text('🔁 ${tr('Alterna')}', maxLines: 1)),
             ],
             selected: {_mode},
             onSelectionChanged: (v) => _setMode(v.first),
@@ -792,10 +624,9 @@ class _ReaderPageState extends State<ReaderPage> {
           child: Text(
             switch (_mode) {
               ReadMode.original => _sample
-                  ? tr('Leggi lo spagnolo seguendo l\'ombra (nell\'esempio legge la voce del telefono).')
-                  : tr('La voce vera della radio: segui l\'ombra e impara a leggere.'),
-              ReadMode.translation => tr('La traduzione letta dalla voce araba, parola per parola.'),
-              ReadMode.alternate => tr('Ogni frase: prima l\'originale, poi la traduzione.'),
+                  ? tr('Esempio senza audio: premi ▶ e guarda l\'ombra passare sulle parole.')
+                  : tr('Segui l\'ombra sul testo originale e impara a leggere.'),
+              ReadMode.translation => tr('Segui l\'ombra sulla traduzione mentre parla la radio.'),
             },
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: s.onSurfaceVariant),
@@ -830,26 +661,24 @@ class _ReaderPageState extends State<ReaderPage> {
     final l = t.lines[i];
     final srcRtl = _src == 'ar';
     final dstRtl = _dst == 'ar';
-    final big = _mode == ReadMode.translation ? 'tr' : (_mode == ReadMode.original ? 'src' : 'both');
+    final big = _mode == ReadMode.translation ? 'tr' : 'src';
 
     final srcWords = l.words.map((w) => w.t).toList();
     final trWords = trText == null ? <String>[] : trText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final srcActive = cur && !_phaseTr && _mode != ReadMode.translation;
-    final trActive = cur && (_phaseTr || _mode == ReadMode.translation);
 
     final srcBlock = _words(
       srcWords,
-      active: srcActive ? _word : -1,
+      active: cur ? _word : -1,
       size: big == 'src' ? 23 : (big == 'both' ? 20 : 15),
       dim: big == 'tr',
       rtl: srcRtl,
-      onTap: (w) => _mode == ReadMode.translation ? _playFrom(i) : _playFrom(i, w),
+      onTap: (w) => _playFrom(i, w),
     );
     final trBlock = trText == null
         ? null
         : _words(
             trWords,
-            active: trActive ? _word : -1,
+            active: cur ? _trWord : -1,
             size: big == 'tr' ? 26 : (big == 'both' ? 23 : 18),
             dim: big == 'src',
             rtl: dstRtl,
