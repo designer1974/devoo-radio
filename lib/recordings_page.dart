@@ -10,6 +10,7 @@ import 'player.dart';
 import 'pro.dart';
 import 'recorder.dart';
 import 'reader_page.dart';
+import 'rec_player.dart';
 import 'recording.dart';
 import 'schedule.dart';
 import 'transcript.dart' show moveTranscript, deleteTranscript;
@@ -66,6 +67,14 @@ class _RecordingsPageState extends State<RecordingsPage> {
     } catch (_) {
       _snack('Impossibile riprodurre il file');
     }
+  }
+
+  Future<void> _openPlayer(List<RecFile> list, int index) async {
+    await _stopLocal();
+    await RadioPlayer.i.stop(); // non due audio insieme
+    if (!mounted) return;
+    await showRecPlayer(context,
+        items: List.of(list), index: index, onRead: _read, onEdit: _edit, onShare: _share);
   }
 
   Future<void> _read(RecFile r) async {
@@ -306,7 +315,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
                       )
                     : ListView.builder(
                         itemCount: shown.length,
-                        itemBuilder: (_, i) => _tile(shown[i], scheme),
+                        itemBuilder: (_, i) => _tile(shown[i], scheme, shown, i),
                       ),
               ),
             ],
@@ -316,7 +325,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
     );
   }
 
-  Widget _tile(RecFile r, ColorScheme scheme) {
+  Widget _tile(RecFile r, ColorScheme scheme, List<RecFile> list, int index) {
     final playing = _playing == r.file.path;
     final d = r.duration;
     return ListTile(
@@ -330,7 +339,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
           style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(
           '${fmtDate(r.date)} · ${d == null ? '…' : fmtDur(d)} · ${fmtSize(r.size)}'),
-      onTap: () => _play(r),
+      onTap: () => _openPlayer(list, index),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -338,7 +347,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
             iconSize: 32,
             icon: Icon(playing ? Icons.stop_circle : Icons.play_circle_outline,
                 color: playing ? accent : null),
-            onPressed: () => _play(r),
+            onPressed: () => playing ? _play(r) : _openPlayer(list, index),
           ),
           PopupMenuButton<String>(
             onSelected: (v) {

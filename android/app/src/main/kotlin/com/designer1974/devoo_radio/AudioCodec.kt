@@ -221,7 +221,11 @@ object AudioTools {
         }
     }
 
-    /** M4A (o altro formato) -> WAV PCM 16 bit. */
+    /**
+     * M4A (o altro formato) -> WAV PCM 16 bit.
+     * Nella stessa passata scrive anche «dst.peaks»: il picco (0..255) di ogni blocco
+     * da 10 ms, cioè la forma d'onda dell'editor (così non serve rileggere tutto il file).
+     */
     fun toWav(src: String, dst: String, progress: (Double) -> Unit) {
         val ex = MediaExtractor()
         ex.setDataSource(src)
@@ -239,9 +243,12 @@ object AudioTools {
         val dec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
         dec.configure(fmt, null, null, 0)
         dec.start()
-        val out = RandomAccessFile(File(dst), "rw")
-        out.setLength(0)
+        val out = java.io.BufferedOutputStream(java.io.FileOutputStream(File(dst)), 1 shl 18)
         out.write(ByteArray(44))
+        val peaks = java.io.ByteArrayOutputStream(if (durUs > 0) (durUs / 10_000).toInt() + 16 else 1 shl 16)
+        var spb = 0          // campioni per blocco (tutti i canali)
+        var inBlock = 0
+        var peak = 0
         val info = MediaCodec.BufferInfo()
         var tmp = ByteArray(0)
         var total = 0L
@@ -262,7 +269,7 @@ object AudioTools {
                             val ts = ex.sampleTime
                             dec.queueInputBuffer(i, 0, n, ts, 0)
                             ex.advance()
-                            if (durUs > 0 && ts - lastReport > 5_000_000) {
+                            if (durUs > 0 && ts - lastReport > 3_000_000) {
                                 lastReport = ts
                                 progress(ts.toDouble() / durUs)
                             }
@@ -282,18 +289,34 @@ object AudioTools {
                         b.get(tmp, 0, info.size)
                         out.write(tmp, 0, info.size)
                         total += info.size
+                        if (spb == 0) spb = maxOf(1, rate / 100) * ch
+                        var k = 0
+                        while (k + 1 < info.size) {
+                            var v = (tmp[k].toInt() and 0xff) or (tmp[k + 1].toInt() shl 8)
+                            if (v < 0) v = -v
+                            if (v > peak) peak = v
+                            if (++inBlock == spb) {
+                                peaks.write(minOf(255, peak shr 7))
+                                inBlock = 0; peak = 0
+                            }
+                            k += 2
+                        }
                     }
                     dec.releaseOutputBuffer(o, false)
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outDone = true
                 }
             }
-            writeWavHeader(out, total, ch, rate)
+            if (inBlock > 0) peaks.write(minOf(255, peak shr 7))
+            out.flush()
         } finally {
             out.close()
             try { dec.stop() } catch (_: Exception) {}
             try { dec.release() } catch (_: Exception) {}
             ex.release()
         }
+        val raf = RandomAccessFile(File(dst), "rw")
+        try { writeWavHeader(raf, total, ch, rate) } finally { raf.close() }
+        try { File("$dst.peaks").writeBytes(peaks.toByteArray()) } catch (_: Exception) {}
     }
 
     /**

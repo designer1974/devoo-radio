@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Text;
+import 'package:path_provider/path_provider.dart';
 
 import 'recorder.dart';
 import 'wav_edit.dart';
@@ -31,7 +32,8 @@ enum _Drag { none, newSel, edgeA, edgeB, zoom }
 
 class _EditorPageState extends State<EditorPage> {
   WavInfo _info = WavInfo(2, 48000, 44, 0);
-  late final String _src; // WAV su cui si lavora (decodificato se M4A)
+  late String _src; // WAV su cui si lavora (decodificato se M4A)
+  bool _keepSrc = false; // il WAV decodificato resta pronto per la prossima apertura
   double? _decodeProgress;
   Uint8List? _peaks; // forma d'onda originale
   List<Seg> _orig = const [];
@@ -71,7 +73,7 @@ class _EditorPageState extends State<EditorPage> {
   void initState() {
     super.initState();
     final dir = File(widget.path).parent.path;
-    _src = isCompressed(widget.path) ? '$dir/.edit_src.wav' : widget.path;
+    _src = widget.path;
     _previewPath = '$dir/.preview.wav';
     _posSub = _player.onPositionChanged.listen(_onPos);
     _doneSub = _player.onPlayerComplete.listen((_) {
@@ -81,21 +83,58 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Future<void> _load() async {
-    if (_src != widget.path) {
+    // Il file preparato e la forma d'onda si tengono nella cache:
+    // riaprire la stessa registrazione è quasi immediato.
+    final f = File(widget.path);
+    final st = f.statSync();
+    final key = '${widget.path.hashCode.toUnsigned(32)}_${st.size}_${st.modified.millisecondsSinceEpoch}';
+    final cache = await getTemporaryDirectory();
+    final peaksPath = '${cache.path}/edit_$key.peaks';
+    if (isCompressed(widget.path)) {
+      _src = '${cache.path}/edit_$key.wav';
+      final ready = File(_src).existsSync() && File(peaksPath).existsSync();
+      // tiene solo l'ultima registrazione preparata
       try {
-        await Recorder.toWav(widget.path, _src,
-            progress: (v) => mounted ? setState(() => _decodeProgress = v) : null);
-      } catch (e) {
-        if (mounted) {
-          _snack('Impossibile aprire il file: $e');
-          Navigator.pop(context, false);
+        for (final e in cache.listSync()) {
+          final n = e.path.split('/').last;
+          if (n.startsWith('edit_') && !n.contains(key)) e.deleteSync();
         }
-        return;
+      } catch (_) {}
+      if (!ready) {
+        try {
+          await Recorder.toWav(widget.path, _src,
+              progress: (v) => mounted ? setState(() => _decodeProgress = v) : null);
+          final pk = File('$_src.peaks');
+          if (pk.existsSync()) pk.renameSync(peaksPath);
+        } catch (e) {
+          if (mounted) {
+            _snack('Impossibile aprire il file: $e');
+            Navigator.pop(context, false);
+          }
+          return;
+        }
       }
+      // file enormi (registrazioni di ore): non li lascia occupare spazio
+      _keepSrc = File(_src).lengthSync() < 700 * 1024 * 1024;
     }
     final path = _src;
     final info = readWavInfo(path);
-    final p = await peaksInBackground(path);
+    Uint8List? p;
+    try {
+      final pf = File(peaksPath);
+      if (pf.existsSync()) {
+        final b = pf.readAsBytesSync();
+        if ((b.length - info.blocks).abs() <= 2) {
+          p = Uint8List(info.blocks)..setRange(0, min(b.length, info.blocks), b);
+        }
+      }
+    } catch (_) {}
+    if (p == null) {
+      p = await peaksInBackground(path);
+      try {
+        File(peaksPath).writeAsBytesSync(p);
+      } catch (_) {}
+    }
     if (!mounted) return;
     setState(() {
       _info = info;
@@ -112,7 +151,7 @@ class _EditorPageState extends State<EditorPage> {
     _posSub?.cancel();
     _doneSub?.cancel();
     _player.dispose();
-    for (final f in [_previewPath, if (_src != widget.path) _src]) {
+    for (final f in [_previewPath, if (_src != widget.path && !_keepSrc) _src]) {
       try {
         File(f).deleteSync();
       } catch (_) {}
