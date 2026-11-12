@@ -97,7 +97,12 @@ class _ReaderPageState extends State<ReaderPage> {
 
   // lettura
   ReadMode _mode = ReadMode.original;
-  bool _slow = false;
+  double _rate = 1.0; // velocità: 1, 0.75, 0.5
+  int _sync = 300; // ms: l'ombra anticipa un po' (Whisper segna le parole in ritardo)
+  // posizione stimata tra un aggiornamento e l'altro del player (che arriva ogni ~200 ms)
+  int _basePos = 0;
+  DateTime _baseAt = DateTime.now();
+  Timer? _tick;
   bool _playing = false;
   int _line = -1;
   int _word = -1; // parola dell'originale sotto l'ombra
@@ -121,11 +126,17 @@ class _ReaderPageState extends State<ReaderPage> {
     try {
       final p = await SharedPreferences.getInstance();
       _mode = ReadMode.values[(p.getInt('readMode') ?? 0).clamp(0, ReadMode.values.length - 1)];
-      _slow = p.getBool('readSlow') ?? false;
+      _rate = p.getDouble('readRate') ?? 1.0;
+      _sync = p.getInt('readSync') ?? 300;
     } catch (_) {}
     final t = _sample ? sampleTranscript() : await loadTranscript(widget.path!);
-    _posSub = _player.onPositionChanged.listen((d) => _onPos(d.inMilliseconds));
+    _posSub = _player.onPositionChanged.listen((d) {
+      _basePos = d.inMilliseconds;
+      _baseAt = DateTime.now();
+      if (_tick == null) _onPos(_basePos + _sync);
+    });
     _doneSub = _player.onPlayerComplete.listen((_) {
+      _stopTick();
       if (mounted) setState(() => _playing = false);
     });
     if (!_sample) {
@@ -157,6 +168,7 @@ class _ReaderPageState extends State<ReaderPage> {
   void dispose() {
     _job?.removeListener(_onJob);
     _demo?.cancel();
+    _tick?.cancel();
     _posSub?.cancel();
     _doneSub?.cancel();
     _player.dispose();
@@ -224,8 +236,24 @@ class _ReaderPageState extends State<ReaderPage> {
         alignment: 0.25, duration: const Duration(milliseconds: 400), curve: Curves.easeOut);
   }
 
+  void _startTick() {
+    _tick?.cancel();
+    _baseAt = DateTime.now();
+    _tick = Timer.periodic(const Duration(milliseconds: 30), (_) {
+      if (!_playing) return;
+      final est = _basePos + (DateTime.now().difference(_baseAt).inMilliseconds * _rate).round();
+      _onPos(est + _sync);
+    });
+  }
+
+  void _stopTick() {
+    _tick?.cancel();
+    _tick = null;
+  }
+
   Future<void> _pause() async {
     _demo?.cancel();
+    _stopTick();
     try {
       await _player.pause();
     } catch (_) {}
@@ -242,7 +270,7 @@ class _ReaderPageState extends State<ReaderPage> {
       var last = DateTime.now();
       _demo = Timer.periodic(const Duration(milliseconds: 50), (tm) {
         final now = DateTime.now();
-        final step = now.difference(last).inMilliseconds * (_slow ? 0.75 : 1.0);
+        final step = now.difference(last).inMilliseconds * _rate;
         last = now;
         final ms = _pos + step.round();
         if (ms >= end) {
@@ -256,8 +284,12 @@ class _ReaderPageState extends State<ReaderPage> {
       });
       return;
     }
-    await _player.setPlaybackRate(_slow ? 0.75 : 1.0);
+    await _player.setPlaybackRate(_rate);
     await _player.resume();
+    try {
+      _basePos = (await _player.getCurrentPosition())?.inMilliseconds ?? _basePos;
+    } catch (_) {}
+    _startTick();
   }
 
   /// Va alla frase [i] (e alla parola [w]) e suona da lì.
@@ -271,6 +303,8 @@ class _ReaderPageState extends State<ReaderPage> {
       _onPos(at);
     } else {
       await _player.seek(Duration(milliseconds: at));
+      _basePos = at;
+      _baseAt = DateTime.now();
       _onPos(at);
     }
     await _resume();
@@ -290,13 +324,79 @@ class _ReaderPageState extends State<ReaderPage> {
     } catch (_) {}
   }
 
-  Future<void> _setSlow(bool v) async {
-    setState(() => _slow = v);
+  Future<void> _nextRate() async {
+    const rates = [1.0, 0.75, 0.5];
+    final i = rates.indexOf(_rate);
+    final v = rates[(i + 1) % rates.length];
+    // la posizione stimata riparte da qui con la nuova velocità
+    _basePos = _basePos + (DateTime.now().difference(_baseAt).inMilliseconds * _rate).round();
+    _baseAt = DateTime.now();
+    setState(() => _rate = v);
     try {
-      (await SharedPreferences.getInstance()).setBool('readSlow', v);
+      (await SharedPreferences.getInstance()).setDouble('readRate', v);
     } catch (_) {}
-    if (_playing && !_sample) await _player.setPlaybackRate(v ? 0.75 : 1.0);
+    if (_playing && !_sample) await _player.setPlaybackRate(v);
   }
+
+  Future<void> _setSync(int v) async {
+    setState(() => _sync = v.clamp(-1000, 1500));
+    try {
+      (await SharedPreferences.getInstance()).setInt('readSync', _sync);
+    } catch (_) {}
+  }
+
+  /// Regola a mano l'ombra rispetto alla voce.
+  Future<void> _syncDialog() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(tr('Ombra e voce insieme'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(tr('Se la voce va avanti, premi «Ombra prima». Se l\'ombra corre troppo, premi «Ombra dopo».'),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  FilledButton.tonal(
+                      onPressed: () {
+                        _setSync(_sync - 100);
+                        set(() {});
+                      },
+                      child: Text('◀ ${tr('Ombra dopo')}')),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Text('${_sync >= 0 ? '+' : ''}${(_sync / 1000).toStringAsFixed(1)} s',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  ),
+                  FilledButton.tonal(
+                      onPressed: () {
+                        _setSync(_sync + 100);
+                        set(() {});
+                      },
+                      child: Text('${tr('Ombra prima')} ▶')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                  onPressed: () {
+                    _setSync(300);
+                    set(() {});
+                  },
+                  child: Text(tr('Ripristina'))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
 
   // ---------------- creazione del testo ----------------
 
@@ -791,7 +891,7 @@ class _ReaderPageState extends State<ReaderPage> {
             GestureDetector(
               onTap: () => onTap(k),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
+                duration: const Duration(milliseconds: 70),
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
                   color: k == active ? accent.withValues(alpha: 0.30) : Colors.transparent,
@@ -829,14 +929,25 @@ class _ReaderPageState extends State<ReaderPage> {
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
         child: Row(
           children: [
-            ChoiceChip(
-              label: Text(_slow ? '🐢 ${tr('Lento')}' : '1×'),
-              selected: _slow,
-              onSelected: _setSlow,
+            FilledButton.tonal(
+              style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  backgroundColor: _rate < 1 ? accent.withValues(alpha: 0.35) : null),
+              onPressed: _nextRate,
+              child: Text(
+                  _rate == 1.0 ? '🐇 1×' : (_rate == 0.75 ? '🐢 0,75×' : '🐌 0,5×'),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: tr('Ombra e voce insieme'),
+              icon: const Icon(Icons.tune),
+              onPressed: _syncDialog,
             ),
             const Spacer(),
             IconButton(
-              iconSize: 32,
+              iconSize: 30,
+              visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.skip_previous_rounded),
               onPressed: () => _playFrom((_line < 0 ? 0 : _line) - 1),
             ),
@@ -849,15 +960,16 @@ class _ReaderPageState extends State<ReaderPage> {
             ),
             const SizedBox(width: 4),
             IconButton(
-              iconSize: 32,
+              iconSize: 30,
+              visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.skip_next_rounded),
               onPressed: () => _playFrom(((_line < 0 ? 0 : _line) + 1).clamp(0, n - 1)),
             ),
             const Spacer(),
             SizedBox(
-              width: 64,
+              width: 40,
               child: Text(n == 0 ? '' : '${(_line < 0 ? 0 : _line) + 1}/$n',
-                  textAlign: TextAlign.end, style: TextStyle(color: s.onSurfaceVariant)),
+                  textAlign: TextAlign.end, style: TextStyle(fontSize: 12, color: s.onSurfaceVariant)),
             ),
           ],
         ),
