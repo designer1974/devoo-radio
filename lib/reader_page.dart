@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'i18n.dart' show tr;
+import 'recorder.dart';
 import 'transcript.dart';
 import 'translate_online.dart';
 import 'whisper_service.dart';
@@ -140,6 +141,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _loading = false;
       _resetKeys();
     });
+    _checkInterrupted();
   }
 
   void _resetKeys() {
@@ -294,10 +296,44 @@ class _ReaderPageState extends State<ReaderPage> {
 
   // ---------------- creazione del testo ----------------
 
+  Future<void> _keepScreen(bool on) async {
+    try {
+      await Recorder.channel.invokeMethod('keepScreenOn', {'on': on});
+    } catch (_) {}
+  }
+
+  String get _jobKey => 'readerJob|${widget.path?.split('/').last}';
+
+  Future<void> _markStage(String? stage) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (stage == null) {
+        await p.remove(_jobKey);
+      } else {
+        await p.setString(_jobKey, stage);
+      }
+    } catch (_) {}
+  }
+
+  /// Se l'ultima volta il lavoro si è interrotto (app chiusa dal telefono), lo dice.
+  Future<void> _checkInterrupted() async {
+    if (_sample || _t != null) return;
+    String? stage;
+    try {
+      stage = (await SharedPreferences.getInstance()).getString(_jobKey);
+    } catch (_) {}
+    if (stage == null || !mounted) return;
+    await _markStage(null);
+    _showError('${tr('L\'ultima volta il lavoro si è interrotto durante')}: «$stage».\n\n'
+        '${tr('Di solito succede quando lo schermo si spegne e il telefono chiude l\'app. Ora lo schermo resta acceso da solo: riprova e non uscire dall\'app finché non ha finito.')}');
+  }
+
   Future<void> _create() async {
     final path = widget.path;
     if (path == null) return;
     await _pause();
+    await _keepScreen(true);
+    String lastStage = '';
     setState(() {
       _working = true;
       _stage = tr('Preparo…');
@@ -312,6 +348,11 @@ class _ReaderPageState extends State<ReaderPage> {
           startMs: startMs,
           endMs: endMs,
           onStage: (s, p) {
+            final base = s.replaceAll(RegExp(r'\s*\d+%$'), '');
+            if (base != lastStage) {
+              lastStage = base;
+              _markStage(base);
+            }
             if (mounted) {
               setState(() {
                 _stage = tr(s);
@@ -333,6 +374,8 @@ class _ReaderPageState extends State<ReaderPage> {
     } catch (e) {
       _showError('$e');
     } finally {
+      await _markStage(null);
+      await _keepScreen(false);
       if (mounted) setState(() => _working = false);
     }
   }
@@ -361,6 +404,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _progress = 0;
       _stage = '${tr('Traduco in')} ${_nameOf(dst)}…';
     });
+    await _keepScreen(true);
     try {
       final out = await OnlineTranslator.lines(t.lines.map((l) => l.text).toList(), t.lang, dst,
           progress: (n) {
@@ -376,6 +420,7 @@ class _ReaderPageState extends State<ReaderPage> {
     } catch (_) {
       _snack(tr('Traduzione non riuscita: serve internet. Riprova con ⋮ → Traduci di nuovo.'));
     } finally {
+      await _keepScreen(false);
       if (mounted) setState(() => _working = false);
     }
   }
@@ -445,7 +490,12 @@ class _ReaderPageState extends State<ReaderPage> {
   Widget build(BuildContext context) {
     final t = _t;
     final hasText = t != null && t.lines.isNotEmpty;
-    return Scaffold(
+    return PopScope(
+      canPop: !_working,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _snack(tr('Aspetta che finisca, poi potrai uscire.'));
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -492,6 +542,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   ? _readerView(t)
                   : _setupView(),
       bottomNavigationBar: hasText && !_working && !_loading ? _controls() : null,
+    ),
     );
   }
 
@@ -507,7 +558,7 @@ class _ReaderPageState extends State<ReaderPage> {
               const SizedBox(height: 16),
               LinearProgressIndicator(value: _progress, minHeight: 6, borderRadius: BorderRadius.circular(3)),
               const SizedBox(height: 16),
-              Text(tr('Tutto sul telefono, senza internet (tranne i download della prima volta).'),
+              Text(tr('Non uscire dall\'app finché non ha finito: lo schermo resta acceso da solo.'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ],

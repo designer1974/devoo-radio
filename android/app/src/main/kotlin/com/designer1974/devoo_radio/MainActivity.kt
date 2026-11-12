@@ -248,6 +248,14 @@ class MainActivity : AudioServiceActivity() {
                             report,
                         )
                     }
+                    "keepScreenOn" -> {
+                        val on = call.argument<Boolean>("on") == true
+                        runOnUiThread {
+                            if (on) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                        result.success(null)
+                    }
                     "pickAudio" -> {
                         pickResult?.success(emptyList<String>())
                         pickResult = result
