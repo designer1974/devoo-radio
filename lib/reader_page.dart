@@ -93,7 +93,7 @@ class _ReaderPageState extends State<ReaderPage> {
   double? _progress;
   late String _lang = guessLang(widget.flag);
   int _startMin = 0;
-  int _lenMin = 5; // 0 = tutto
+  late int _lenMin = (widget.duration?.inMinutes ?? 99) <= 15 ? 0 : 5; // 0 = tutto
   Quality _quality = Quality.balanced;
 
   // lettura
@@ -320,7 +320,7 @@ class _ReaderPageState extends State<ReaderPage> {
             }
           });
       if (t.lines.isEmpty) {
-        _snack(tr('Non ho sentito parlato in questo pezzo. Prova un altro minuto.'));
+        _showError(tr('Non ho sentito parlato in questo pezzo. Prova un altro minuto.'));
         return;
       }
       if (t.lang.isEmpty) t.lang = await OnlineTranslator.detect(t.lines.map((l) => l.text).take(10).join(' ')) ?? 'es';
@@ -331,10 +331,24 @@ class _ReaderPageState extends State<ReaderPage> {
       });
       await _translate();
     } catch (e) {
-      _snack('${tr('Non riuscito')}: $e');
+      _showError('$e');
     } finally {
       if (mounted) setState(() => _working = false);
     }
+  }
+
+  void _showError(String e) {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Testo non creato')),
+        content: SingleChildScrollView(
+          child: Text('${tr('Qualcosa è andato storto. Mandami una foto di questo messaggio.')}\n\n$e'),
+        ),
+        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+      ),
+    );
   }
 
   Future<void> _translate() async {
@@ -508,24 +522,32 @@ class _ReaderPageState extends State<ReaderPage> {
         .where((m) => m == 0 || m < totalMin)
         .toList();
     if (!starts.contains(_startMin)) _startMin = 0;
+    final partText = _lenMin == 0
+        ? (widget.duration == null ? tr('tutta la registrazione') : '${tr('tutta la registrazione')} (${fmtMs(widget.duration!.inMilliseconds)})')
+        : '${fmtMs(_startMin * 60000)} → ${fmtMs((_startMin + _lenMin) * 60000)}';
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
       children: [
-        const Icon(Icons.menu_book_rounded, size: 52, color: accent),
-        const SizedBox(height: 8),
-        Text(tr('Trasforma la registrazione in un libro da leggere'),
+        const Icon(Icons.menu_book_rounded, size: 48, color: accent),
+        const SizedBox(height: 6),
+        Text(tr('Crea il testo di questa registrazione'),
             textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         Text(
-            tr('Il telefono scrive quello che dice la radio, lo traduce in arabo e, mentre ascolti, un\'ombra passa sulle parole.'),
+            tr('Il telefono scrive quello che dice la radio e lo traduce in arabo. Poi ascolti la voce della radio e il colore segue le parole.'),
             textAlign: TextAlign.center,
             style: TextStyle(color: s.onSurfaceVariant)),
-        const SizedBox(height: 14),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReaderPage.sample())),
-          icon: const Text('🇪🇸 → 🇸🇦', style: TextStyle(fontSize: 18)),
-          label: Text(tr('Vedi l\'esempio spagnolo → arabo')),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(60)),
+          onPressed: _create,
+          icon: const Icon(Icons.auto_stories, size: 26),
+          label: Text(tr('Crea il testo e la traduzione araba'),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         ),
+        const SizedBox(height: 8),
+        Text('${_flagOf(_lang == 'auto' ? 'es' : _lang)} ${_lang == 'auto' ? tr('lingua automatica') : _nameOf(_lang)} · $partText · ${tr(_quality.label)}',
+            textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: s.onSurfaceVariant)),
         const SizedBox(height: 22),
         Text(tr('Lingua della radio'), style: const TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
@@ -575,7 +597,7 @@ class _ReaderPageState extends State<ReaderPage> {
           ],
         ),
         const SizedBox(height: 6),
-        Text(tr('Più è lungo, più tempo ci vuole: circa quanto la durata del pezzo.'),
+        Text(tr('Ci vuole circa quanto la durata del pezzo. La prima volta scarica anche il modello (una sola volta).'),
             style: TextStyle(fontSize: 13, color: s.onSurfaceVariant)),
         const SizedBox(height: 20),
         Text(tr('Precisione'), style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -588,12 +610,17 @@ class _ReaderPageState extends State<ReaderPage> {
           selected: {_quality},
           onSelectionChanged: (v) => setState(() => _quality = v.first),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 24),
         FilledButton.icon(
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
           onPressed: _create,
           icon: const Icon(Icons.auto_stories),
           label: Text(tr('Crea il testo e la traduzione araba'), style: const TextStyle(fontSize: 16)),
+        ),
+        const SizedBox(height: 16),
+        TextButton(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReaderPage.sample())),
+          child: Text(tr('Solo per vedere come funziona: esempio finto senza audio')),
         ),
       ],
     );
