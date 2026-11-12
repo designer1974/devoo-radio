@@ -8172,6 +8172,16 @@ int64_t whisper_full_get_segment_t0_from_state(struct whisper_state * state, int
     return map_processed_to_original_time(t0, state->vad_mapping_table);
 }
 
+// Devoo: converte un tempo dell'audio filtrato dal VAD nel tempo dell'audio originale
+// (serve per i tempi DTW delle singole parole).
+extern "C" int64_t whisper_full_map_time_ext(struct whisper_context * ctx, int64_t t) {
+    struct whisper_state * state = ctx->state;
+    if (state == nullptr || !state->has_vad_segments || state->vad_mapping_table.empty()) {
+        return t;
+    }
+    return map_processed_to_original_time(t, state->vad_mapping_table);
+}
+
 // Function to get the ending timestamp of a segment
 int64_t whisper_full_get_segment_t1_from_state(struct whisper_state * state, int i_segment) {
     // If VAD wasn't used, return the original timestamp

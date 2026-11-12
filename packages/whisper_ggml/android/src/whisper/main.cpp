@@ -1,5 +1,6 @@
 #include "main.h"
 #include "whisper.cpp/include/whisper.h"
+extern "C" int64_t whisper_full_map_time_ext(struct whisper_context * ctx, int64_t t);
 
 #define DR_WAV_IMPLEMENTATION
 #include "whisper.cpp/examples/dr_wav.h"
@@ -253,6 +254,21 @@ json transcribe(json jsonBody) noexcept
     {
         struct whisper_context_params cparams = whisper_context_default_params();
         cparams.use_gpu = false; // CPU-only build
+        // Devoo: tempi precisi di ogni parola (DTW). Non funziona con flash_attn.
+        {
+            const std::string &m = params.model;
+            const bool en = m.find(".en") != std::string::npos;
+            enum whisper_alignment_heads_preset preset = WHISPER_AHEADS_NONE;
+            if (m.find("tiny") != std::string::npos) preset = en ? WHISPER_AHEADS_TINY_EN : WHISPER_AHEADS_TINY;
+            else if (m.find("base") != std::string::npos) preset = en ? WHISPER_AHEADS_BASE_EN : WHISPER_AHEADS_BASE;
+            else if (m.find("small") != std::string::npos) preset = en ? WHISPER_AHEADS_SMALL_EN : WHISPER_AHEADS_SMALL;
+            else if (m.find("medium") != std::string::npos) preset = en ? WHISPER_AHEADS_MEDIUM_EN : WHISPER_AHEADS_MEDIUM;
+            if (preset != WHISPER_AHEADS_NONE) {
+                cparams.flash_attn = false;
+                cparams.dtw_token_timestamps = true;
+                cparams.dtw_aheads_preset = preset;
+            }
+        }
         ctx = whisper_init_from_file_with_params(params.model.c_str(), cparams);
     }
     if (ctx == nullptr)
@@ -451,8 +467,25 @@ json transcribe(json jsonBody) noexcept
                     // fflush(stdout);
                 } else {
                     json jsonSegment;
-                    const int64_t t0 = whisper_full_get_segment_t0(ctx, i);
-                    const int64_t t1 = whisper_full_get_segment_t1(ctx, i);
+                    int64_t t0 = whisper_full_get_segment_t0(ctx, i);
+                    int64_t t1 = whisper_full_get_segment_t1(ctx, i);
+                    // Devoo: inizio della parola dal DTW (più preciso), se disponibile e sensato
+                    if (params.split_on_word) {
+                        const int n_tok = whisper_full_n_tokens(ctx, i);
+                        const whisper_token eot = whisper_token_eot(ctx);
+                        for (int j = 0; j < n_tok; ++j) {
+                            const whisper_token_data td = whisper_full_get_token_data(ctx, i, j);
+                            if (td.id >= eot) continue;
+                            if (td.t_dtw >= 0) {
+                                const int64_t d = whisper_full_map_time_ext(ctx, td.t_dtw);
+                                if (d > t0 - 150 && d < t0 + 150) {
+                                    t0 = d;
+                                    if (t1 < t0) t1 = t0;
+                                }
+                            }
+                            break;
+                        }
+                    }
 
                     // printf("[%s --> %s]  %s\n", to_timestamp(t0).c_str(), to_timestamp(t1).c_str(), text);
 

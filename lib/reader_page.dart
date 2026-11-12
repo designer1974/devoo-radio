@@ -20,16 +20,33 @@ import 'widgets.dart' show accent;
 /// Lingue dell'audio che sappiamo trascrivere e tradurre.
 const readerLangs = <String, (String, String)>{
   'es': ('🇪🇸', 'Español'),
+  'ar': ('🇸🇦', 'العربية'),
+  'it': ('🇮🇹', 'Italiano'),
   'en': ('🇬🇧', 'English'),
   'fr': ('🇫🇷', 'Français'),
-  'it': ('🇮🇹', 'Italiano'),
   'de': ('🇩🇪', 'Deutsch'),
   'pt': ('🇵🇹', 'Português'),
-  'ar': ('🇸🇦', 'العربية'),
-  'tr': ('🇹🇷', 'Türkçe'),
   'nl': ('🇳🇱', 'Nederlands'),
+  'tr': ('🇹🇷', 'Türkçe'),
   'ru': ('🇷🇺', 'Русский'),
+  'uk': ('🇺🇦', 'Українська'),
+  'pl': ('🇵🇱', 'Polski'),
+  'ro': ('🇷🇴', 'Română'),
+  'el': ('🇬🇷', 'Ελληνικά'),
+  'sq': ('🇦🇱', 'Shqip'),
+  'sv': ('🇸🇪', 'Svenska'),
+  'fa': ('🇮🇷', 'فارسی'),
+  'ur': ('🇵🇰', 'اردو'),
+  'he': ('🇮🇱', 'עברית'),
+  'hi': ('🇮🇳', 'हिन्दी'),
+  'bn': ('🇧🇩', 'বাংলা'),
+  'zh': ('🇨🇳', '中文'),
+  'ja': ('🇯🇵', '日本語'),
+  'ko': ('🇰🇷', '한국어'),
+  'id': ('🇮🇩', 'Indonesia'),
 };
+
+bool _rtl(String code) => const {'ar', 'fa', 'ur', 'he'}.contains(code);
 
 String _flagOf(String code) => readerLangs[code]?.$1 ?? '🌐';
 String _nameOf(String code) => readerLangs[code]?.$2 ?? code.toUpperCase();
@@ -113,7 +130,8 @@ class _ReaderPageState extends State<ReaderPage> {
 
   bool get _sample => widget.path == null;
   String get _src => _t?.lang.isNotEmpty == true ? _t!.lang : (_lang == 'auto' ? 'es' : _lang);
-  String get _dst => _src == 'ar' ? 'it' : 'ar';
+  String _target = 'ar'; // lingua in cui tradurre (scelta da te)
+  String get _dst => _sample ? 'ar' : TextJob.dstFor(_src, _target);
   List<String>? get _trs => _t?.translations[_dst];
 
   @override
@@ -128,6 +146,7 @@ class _ReaderPageState extends State<ReaderPage> {
       _mode = ReadMode.values[(p.getInt('readMode') ?? 0).clamp(0, ReadMode.values.length - 1)];
       _rate = p.getDouble('readRate') ?? 1.0;
       _sync = p.getInt('readSync') ?? 300;
+      _target = p.getString('readTarget') ?? 'ar';
     } catch (_) {}
     final t = _sample ? sampleTranscript() : await loadTranscript(widget.path!);
     _posSub = _player.onPositionChanged.listen((d) {
@@ -198,17 +217,42 @@ class _ReaderPageState extends State<ReaderPage> {
     final words = _trWordsOf(i);
     if (t == null || words.isEmpty) return -1;
     final l = t.lines[i];
-    final span = (l.e - l.s).clamp(1, 1 << 30);
-    final f = ((ms - l.s) / span).clamp(0.0, 0.999);
-    final total = words.fold<int>(0, (a, w) => a + w.length + 1);
-    final target = f * total;
-    var acc = 0;
-    for (var k = 0; k < words.length; k++) {
-      acc += words[k].length + 1;
-      if (acc > target) return k;
+    // pezzi tra le virgole: l'ombra resta nel pezzo che la radio sta dicendo
+    final tc = t.chunks[_dst];
+    var srcFrom = 0, srcTo = l.words.length, trFrom = 0, trTo = words.length;
+    if (tc != null && i < tc.length && tc[i].length >= 2) {
+      final c = tc[i];
+      final sw = wordAt(l, ms).clamp(0, l.words.length - 1);
+      var acc = 0;
+      for (var k = 0; k + 1 < c.length; k += 2) {
+        final start = c[k], n = c[k + 1];
+        final next = k + 2 < c.length ? c[k + 2] : l.words.length;
+        if (sw >= start && sw < next) {
+          srcFrom = start;
+          srcTo = next;
+          trFrom = acc;
+          trTo = (acc + n).clamp(acc, words.length);
+          break;
+        }
+        acc += n;
+      }
+      if (trTo <= trFrom) return trFrom.clamp(0, words.length - 1);
     }
-    return words.length - 1;
+    final a = l.words[srcFrom.clamp(0, l.words.length - 1)].s;
+    final b = srcTo < l.words.length ? l.words[srcTo].s : l.e;
+    final span = (b - a).clamp(1, 1 << 30);
+    final f = ((ms - a) / span).clamp(0.0, 0.999);
+    final part = words.sublist(trFrom, trTo);
+    final total = part.fold<int>(0, (x, w) => x + w.length + 1);
+    final target = f * total;
+    var acc2 = 0;
+    for (var k = 0; k < part.length; k++) {
+      acc2 += part[k].length + 1;
+      if (acc2 > target) return trFrom + k;
+    }
+    return trTo - 1;
   }
+
 
   void _onPos(int ms) {
     final t = _t;
@@ -336,6 +380,47 @@ class _ReaderPageState extends State<ReaderPage> {
       (await SharedPreferences.getInstance()).setDouble('readRate', v);
     } catch (_) {}
     if (_playing && !_sample) await _player.setPlaybackRate(v);
+  }
+
+  Future<void> _setTarget(String code, {bool translateNow = true}) async {
+    setState(() => _target = code);
+    try {
+      (await SharedPreferences.getInstance()).setString('readTarget', code);
+    } catch (_) {}
+    if (translateNow && !_sample && _t != null && _t!.translations[_dst] == null) _translate();
+  }
+
+  Future<void> _pickTarget() async {
+    final code = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.75),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(tr('Traduci in'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              ),
+              for (final e in readerLangs.entries)
+                if (e.key != _src)
+                  ListTile(
+                    leading: Text(e.value.$1, style: const TextStyle(fontSize: 26)),
+                    title: Text(e.value.$2),
+                    trailing: e.key == _dst
+                        ? const Icon(Icons.check, color: accent)
+                        : (_t?.translations[e.key] != null ? const Icon(Icons.done_all, size: 18) : null),
+                    onTap: () => Navigator.pop(ctx, e.key),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (code != null) await _setTarget(code);
   }
 
   Future<void> _setSync(int v) async {
@@ -475,7 +560,7 @@ class _ReaderPageState extends State<ReaderPage> {
     await _pause();
     final startMs = _startMin * 60000;
     final endMs = _lenMin == 0 ? 0 : startMs + _lenMin * 60000;
-    _attach(TextJob.create(path, quality: _quality, lang: _lang, startMs: startMs, endMs: endMs));
+    _attach(TextJob.create(path, quality: _quality, lang: _lang, startMs: startMs, endMs: endMs, target: _target));
   }
 
   void _showError(String e) {
@@ -496,7 +581,7 @@ class _ReaderPageState extends State<ReaderPage> {
     final path = widget.path;
     if (path == null) return;
     await _pause();
-    _attach(TextJob.translate(path));
+    _attach(TextJob.translate(path, _target));
   }
 
 
@@ -519,7 +604,7 @@ class _ReaderPageState extends State<ReaderPage> {
               controller: ctrl,
               maxLines: null,
               autofocus: true,
-              textDirection: _dst == 'ar' ? TextDirection.rtl : TextDirection.ltr,
+              textDirection: _rtl(_dst) ? TextDirection.rtl : TextDirection.ltr,
               style: const TextStyle(fontSize: 20),
             ),
           ],
@@ -668,7 +753,7 @@ class _ReaderPageState extends State<ReaderPage> {
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(60)),
           onPressed: _create,
           icon: const Icon(Icons.auto_stories, size: 26),
-          label: Text(tr('Crea il testo e la traduzione araba'),
+          label: Text('${tr('Crea il testo e la traduzione')} ${_flagOf(_target)}',
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         ),
         const SizedBox(height: 8),
@@ -691,6 +776,21 @@ class _ReaderPageState extends State<ReaderPage> {
                 label: Text('${e.value.$1} ${e.value.$2}'),
                 selected: _lang == e.key,
                 onSelected: (_) => setState(() => _lang = e.key),
+              ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Text(tr('Traduci in'), style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final e in readerLangs.entries)
+              ChoiceChip(
+                label: Text('${e.value.$1} ${e.value.$2}'),
+                selected: _target == e.key,
+                onSelected: (_) => _setTarget(e.key, translateNow: false),
               ),
           ],
         ),
@@ -752,7 +852,10 @@ class _ReaderPageState extends State<ReaderPage> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          child: SegmentedButton<ReadMode>(
+          child: Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<ReadMode>(
             showSelectedIcon: false,
             segments: [
               ButtonSegment(
@@ -763,6 +866,15 @@ class _ReaderPageState extends State<ReaderPage> {
             ],
             selected: {_mode},
             onSelectionChanged: (v) => _setMode(v.first),
+                ),
+              ),
+              if (!_sample)
+                IconButton(
+                  tooltip: tr('Traduci in'),
+                  icon: const Icon(Icons.translate),
+                  onPressed: _pickTarget,
+                ),
+            ],
           ),
         ),
         Padding(
@@ -805,8 +917,8 @@ class _ReaderPageState extends State<ReaderPage> {
     final s = Theme.of(context).colorScheme;
     final cur = i == _line;
     final l = t.lines[i];
-    final srcRtl = _src == 'ar';
-    final dstRtl = _dst == 'ar';
+    final srcRtl = _rtl(_src);
+    final dstRtl = _rtl(_dst);
     final big = _mode == ReadMode.translation ? 'tr' : 'src';
 
     final srcWords = l.words.map((w) => w.t).toList();

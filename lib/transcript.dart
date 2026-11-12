@@ -33,10 +33,14 @@ class Transcript {
   final String model;
   final List<TLine> lines;
   final Map<String, List<String>> translations; // lingua -> una traduzione per frase
+  /// lingua -> per ogni frase: [parola d'inizio nell'originale, n. parole tradotte, ...]
+  /// La traduzione è fatta a pezzi (tra le virgole), così l'ombra sa dove si trova.
+  final Map<String, List<List<int>>> chunks;
   final int from, to; // pezzo trascritto (ms); to = 0 fino alla fine
   Transcript(this.lang, this.model, this.lines,
-      {Map<String, List<String>>? tr, this.from = 0, this.to = 0})
-      : translations = tr ?? {};
+      {Map<String, List<String>>? tr, Map<String, List<List<int>>>? tc, this.from = 0, this.to = 0})
+      : translations = tr ?? {},
+        chunks = tc ?? {};
 
   Map<String, dynamic> toJson() => {
         'v': 1,
@@ -46,6 +50,7 @@ class Transcript {
         'to': to,
         'lines': lines.map((l) => l.toJson()).toList(),
         'tr': translations,
+        'tc': chunks,
       };
 
   factory Transcript.fromJson(Map<String, dynamic> j) => Transcript(
@@ -54,6 +59,9 @@ class Transcript {
         (j['lines'] as List).map((x) => TLine.fromJson(x as Map<String, dynamic>)).toList(),
         tr: ((j['tr'] as Map?) ?? {})
             .map((k, v) => MapEntry(k as String, (v as List).map((e) => '$e').toList())),
+        tc: ((j['tc'] as Map?) ?? {}).map((k, v) => MapEntry(
+            k as String,
+            (v as List).map((l) => (l as List).map((e) => (e as num).toInt()).toList()).toList())),
         from: (j['from'] as num?)?.toInt() ?? 0,
         to: (j['to'] as num?)?.toInt() ?? 0,
       );
@@ -242,4 +250,23 @@ Transcript sampleTranscript() {
     ms += 600;
   }
   return Transcript('es', 'sample', lines, tr: {'ar': ar.toList()});
+}
+
+// ---------------- pezzi per la traduzione ----------------
+
+/// Divide le parole di una frase in pezzi tra le virgole (almeno 3 parole per pezzo).
+/// Restituisce l'indice della prima parola di ogni pezzo.
+List<int> chunkStarts(TLine l) {
+  final starts = <int>[0];
+  var since = 0;
+  for (var i = 0; i < l.words.length - 1; i++) {
+    since++;
+    final w = l.words[i].t;
+    final remaining = l.words.length - 1 - i;
+    if (since >= 3 && remaining >= 3 && RegExp(r'[,;:–—]$').hasMatch(w)) {
+      starts.add(i + 1);
+      since = 0;
+    }
+  }
+  return starts;
 }
