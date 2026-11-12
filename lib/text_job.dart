@@ -70,6 +70,48 @@ class TextJob extends ChangeNotifier {
     return j;
   }
 
+  /// Aggiunge al testo i minuti successivi (dopo la fine del testo attuale).
+  static TextJob extend(String path,
+      {required Quality quality, required int minutes, required String target}) {
+    final old = _jobs[path];
+    if (old != null && old.running) return old;
+    final j = _jobs[path] = TextJob._(path);
+    j._runExtend(quality, minutes, target);
+    return j;
+  }
+
+  Future<void> _runExtend(Quality q, int minutes, String target) async {
+    await _screen(true);
+    _set(tr('Preparo…'), null);
+    try {
+      final t = await loadTranscript(path);
+      if (t == null || t.lines.isEmpty) throw Exception('nessun testo da continuare');
+      final start = t.to > 0 ? t.to : t.lines.last.e;
+      final end = start + minutes * 60000;
+      final more = await _whisper.transcribe(path,
+          quality: q, lang: t.lang.isEmpty ? 'auto' : t.lang, startMs: start, endMs: end, onStage: (s, p) => _set(tr(s), p));
+      final added = more.lines.where((l) => l.s >= start - 300).toList();
+      final merged = Transcript(t.lang, t.model, [...t.lines, ...added],
+          tr: t.translations, tc: t.chunks, from: t.from, to: end);
+      await saveTranscript(path, merged);
+      if (added.isEmpty) {
+        warning = '${tr('Nessun parlato tra')} ${fmtMs(start)} ${tr('e')} ${fmtMs(end)}.';
+      } else {
+        final langs = merged.translations.keys.toList();
+        if (langs.isEmpty) langs.add(dstFor(merged.lang, target));
+        for (final dst in langs) {
+          await _translate(merged, dst, from: t.lines.length);
+        }
+      }
+    } catch (e) {
+      error = '$e';
+    } finally {
+      await _screen(false);
+      running = false;
+      notifyListeners();
+    }
+  }
+
   /// Lingua di arrivo: se coincide con quella della radio, ne sceglie un'altra.
   static String dstFor(String src, String target) => target != src ? target : (src == 'ar' ? 'it' : 'ar');
 
@@ -119,14 +161,14 @@ class TextJob extends ChangeNotifier {
   }
 
   /// Traduce a pezzi (tra le virgole): l'ombra sulla traduzione segue meglio la voce.
-  Future<void> _translate(Transcript t, String dst) async {
+  Future<void> _translate(Transcript t, String dst, {int from = 0}) async {
     final n = t.lines.length;
-    _set('${tr('Traduco')}… 0/$n', 0);
+    _set('${tr('Traduco')}… $from/$n', 0);
     try {
       final pieces = <String>[];
       final owner = <int>[]; // frase di ogni pezzo
       final starts = <List<int>>[];
-      for (var i = 0; i < n; i++) {
+      for (var i = from; i < n; i++) {
         final l = t.lines[i];
         final st = chunkStarts(l);
         starts.add(st);
@@ -139,10 +181,10 @@ class TextJob extends ChangeNotifier {
       final out = await OnlineTranslator.lines(pieces, t.lang, dst,
           progress: (k) => _set('${tr('Traduco')}… ${k == pieces.length ? n : owner[k.clamp(0, owner.length - 1)]}/$n',
               k / pieces.length));
-      final lines = List.generate(n, (_) => <String>[]);
-      final tc = List.generate(n, (_) => <int>[]);
+      final lines = List.generate(n - from, (_) => <String>[]);
+      final tc = List.generate(n - from, (_) => <int>[]);
       var k = 0;
-      for (var i = 0; i < n; i++) {
+      for (var i = 0; i < n - from; i++) {
         for (final s0 in starts[i]) {
           final txt = k < out.length ? out[k].trim() : '';
           k++;
@@ -153,8 +195,23 @@ class TextJob extends ChangeNotifier {
             ..add(words);
         }
       }
-      t.translations[dst] = [for (final l in lines) l.where((x) => x.isNotEmpty).join(' ')];
-      t.chunks[dst] = tc;
+      final newTr = [for (final l in lines) l.where((x) => x.isNotEmpty).join(' ')];
+      if (from == 0) {
+        t.translations[dst] = newTr;
+        t.chunks[dst] = tc;
+      } else {
+        // aggiunge in fondo (riempie eventuali buchi)
+        final oldTr = List<String>.of(t.translations[dst] ?? const []);
+        final oldTc = List<List<int>>.of(t.chunks[dst] ?? const []);
+        while (oldTr.length < from) {
+          oldTr.add('');
+        }
+        while (oldTc.length < from) {
+          oldTc.add(<int>[]);
+        }
+        t.translations[dst] = [...oldTr.take(from), ...newTr];
+        t.chunks[dst] = [...oldTc.take(from), ...tc];
+      }
       await saveTranscript(path, t);
     } catch (_) {
       warning = tr('Testo pronto, ma la traduzione non è riuscita: serve internet. Riprova con ⋮ → Traduci di nuovo.');

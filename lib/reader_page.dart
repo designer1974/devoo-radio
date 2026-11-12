@@ -49,6 +49,10 @@ const readerLangs = <String, (String, String)>{
 bool _rtl(String code) => const {'ar', 'fa', 'ur', 'he'}.contains(code);
 
 String _flagOf(String code) => readerLangs[code]?.$1 ?? '🌐';
+
+/// 🇺🇸 per l'inglese di una radio americana, 🇬🇧 per una britannica, 🇲🇽 per lo spagnolo messicano…
+String _flagFor(String code, String? radioFlag) =>
+    radioFlag != null && guessLang(radioFlag) == code ? radioFlag : _flagOf(code);
 String _nameOf(String code) => readerLangs[code]?.$2 ?? code.toUpperCase();
 
 /// Dalla bandiera della radio (es. 🇲🇽) alla lingua probabile (es).
@@ -99,6 +103,7 @@ class ReaderPage extends StatefulWidget {
 class _ReaderPageState extends State<ReaderPage> {
   final _player = AudioPlayer();
   final _keys = <GlobalKey>[];
+  final _endKey = GlobalKey();
 
   Transcript? _t;
   bool _loading = true;
@@ -258,6 +263,23 @@ class _ReaderPageState extends State<ReaderPage> {
     final t = _t;
     if (t == null || !mounted) return;
     _pos = ms;
+    // oltre la fine del testo: ferma la voce e mostra «Continua il testo»
+    if (!_sample && _playing && t.lines.isNotEmpty && _hasMoreAudio(t) && ms - _sync > _textEnd(t) + 800) {
+      _pause();
+      if (_line != t.lines.length - 1 || _word != -1) {
+        setState(() {
+          _line = t.lines.length - 1;
+          _word = -1;
+          _trWord = -1;
+        });
+      }
+      _snack(tr('Fine del testo. Premi «Continua il testo» per i minuti successivi.'));
+      Future.delayed(const Duration(milliseconds: 300), () {
+        final ctx = _endKey.currentContext;
+        if (ctx != null) Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 400));
+      });
+      return;
+    }
     final i = lineAt(t.lines, ms);
     final w = i < 0 ? -1 : wordAt(t.lines[i], ms);
     final tw = i < 0 ? -1 : _trWordAt(i, ms);
@@ -388,6 +410,58 @@ class _ReaderPageState extends State<ReaderPage> {
       (await SharedPreferences.getInstance()).setString('readTarget', code);
     } catch (_) {}
     if (translateNow && !_sample && _t != null && _t!.translations[_dst] == null) _translate();
+  }
+
+  int _textEnd(Transcript t) => t.to > 0 ? t.to : t.lines.last.e;
+
+  bool _hasMoreAudio(Transcript t) {
+    final d = widget.duration?.inMilliseconds ?? 0;
+    return t.to > 0 && (d == 0 || d - t.to > 3000);
+  }
+
+  Future<void> _extend(int minutes) async {
+    final path = widget.path;
+    if (path == null) return;
+    await _pause();
+    _attach(TextJob.extend(path, quality: _quality, minutes: minutes, target: _target));
+  }
+
+  Widget _endCard(Transcript t) {
+    final s = Theme.of(context).colorScheme;
+    final d = widget.duration;
+    return Container(
+      key: _endKey,
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: s.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        children: [
+          Text(
+              '${tr('Il testo arriva fino a')} ${fmtMs(_textEnd(t))}'
+              '${d == null ? '' : ' ${tr('di')} ${fmtMs(d.inMilliseconds)}'}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              FilledButton.icon(
+                  onPressed: () => _extend(5),
+                  icon: const Icon(Icons.auto_stories),
+                  label: Text('${tr('Continua il testo')} (5 min)')),
+              OutlinedButton(onPressed: () => _extend(15), child: const Text('+15 min')),
+              OutlinedButton(onPressed: () => _extend(60), child: const Text('+60 min')),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _pickTarget() async {
@@ -778,7 +852,7 @@ class _ReaderPageState extends State<ReaderPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _langBox(tr('Radio'), _lang == 'auto' ? '🌐' : _flagOf(_lang),
+            _langBox(tr('Radio'), _lang == 'auto' ? '🌐' : _flagFor(_lang, widget.flag),
                 _lang == 'auto' ? tr('Automatica') : _nameOf(_lang)),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 10),
@@ -804,7 +878,7 @@ class _ReaderPageState extends State<ReaderPage> {
             ),
             for (final e in readerLangs.entries)
               ChoiceChip(
-                label: Text('${e.value.$1} ${e.value.$2}'),
+                label: Text('${_flagFor(e.key, widget.flag)} ${e.value.$2}'),
                 selected: _lang == e.key,
                 onSelected: (_) => setState(() => _lang = e.key),
               ),
@@ -891,7 +965,7 @@ class _ReaderPageState extends State<ReaderPage> {
             segments: [
               ButtonSegment(
                   value: ReadMode.original,
-                  label: Text('${_flagOf(_src)} ${tr('Impara')}', maxLines: 1)),
+                  label: Text('${_flagFor(_src, widget.flag)} ${tr('Impara')}', maxLines: 1)),
               ButtonSegment(
                   value: ReadMode.translation, label: Text('${_flagOf(_dst)} ${_nameOf(_dst)}', maxLines: 1)),
             ],
@@ -936,6 +1010,7 @@ class _ReaderPageState extends State<ReaderPage> {
               children: [
                 for (var i = 0; i < t.lines.length; i++)
                   _lineCard(t, i, trs != null && i < trs.length ? trs[i] : null),
+                if (!_sample && _hasMoreAudio(t)) _endCard(t),
               ],
             ),
           ),
