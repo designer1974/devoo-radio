@@ -637,13 +637,6 @@ class _ReaderPageState extends State<ReaderPage> {
           onSelectionChanged: (v) => setState(() => _quality = v.first),
         ),
         const SizedBox(height: 24),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
-          onPressed: _create,
-          icon: const Icon(Icons.auto_stories),
-          label: Text(tr('Crea il testo e la traduzione araba'), style: const TextStyle(fontSize: 16)),
-        ),
-        const SizedBox(height: 16),
         TextButton(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReaderPage.sample())),
           child: Text(tr('Solo per vedere come funziona: esempio finto senza audio')),

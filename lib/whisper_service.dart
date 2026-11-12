@@ -119,8 +119,23 @@ class WhisperService {
           vadSpeechPadMs: vadPath == null ? null : 200,
           onProgress: (p) => onStage('Trascrivo… $p%', p / 100),
         );
+    // controllo: l'audio preparato non deve essere vuoto
+    final wavLen = File(tmp).existsSync() ? File(tmp).lengthSync() : 0;
+    if (wavLen < 16000 * 2) {
+      throw Exception('audio preparato vuoto ($wavLen byte)');
+    }
+    bool empty(dynamic r) {
+      if (r == null) return true;
+      final t = r.transcription as WhisperTranscribeResponse;
+      return (t.segments ?? []).isEmpty && t.text.trim().isEmpty;
+    }
+
     dynamic res = await run(vad);
-    if (res == null && vad != null) res = await run(null);
+    // se il rilevatore di voce ha scartato tutto, riprova senza
+    if (empty(res) && vad != null) {
+      onStage('Trascrivo (secondo tentativo)… 0%', 0);
+      res = await run(null);
+    }
 
     for (final f in [tmp, '$tmp.wav']) {
       try {

@@ -364,7 +364,7 @@ object AudioTools {
                     if (i >= 0) {
                         val b = dec.getInputBuffer(i)!!
                         val n = ex.readSampleData(b, 0)
-                        if (n < 0 || ex.sampleTime > endUs + 500_000) {
+                        if (n < 0 || (endMs > 0 && ex.sampleTime > endUs + 500_000)) {
                             dec.queueInputBuffer(i, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inDone = true
                         } else {
@@ -425,7 +425,7 @@ object AudioTools {
                         }
                     }
                     dec.releaseOutputBuffer(o, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 || pts > endUs) outDone = true
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 || (endMs > 0 && pts > endUs)) outDone = true
                 }
             }
             out.flush()
