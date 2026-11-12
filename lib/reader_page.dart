@@ -12,9 +12,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'i18n.dart' show tr;
-import 'recorder.dart';
+import 'text_job.dart';
 import 'transcript.dart';
-import 'translate_online.dart';
 import 'whisper_service.dart';
 import 'widgets.dart' show accent;
 
@@ -81,7 +80,6 @@ class ReaderPage extends StatefulWidget {
 }
 
 class _ReaderPageState extends State<ReaderPage> {
-  final _whisper = WhisperService();
   final _player = AudioPlayer();
   final _keys = <GlobalKey>[];
 
@@ -141,7 +139,12 @@ class _ReaderPageState extends State<ReaderPage> {
       _loading = false;
       _resetKeys();
     });
-    _checkInterrupted();
+    final running = _sample ? null : TextJob.of(widget.path!);
+    if (running != null && (running.running || running.error != null || running.warning != null)) {
+      _attach(running);
+    } else {
+      _checkInterrupted();
+    }
   }
 
   void _resetKeys() {
@@ -152,6 +155,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    _job?.removeListener(_onJob);
     _demo?.cancel();
     _posSub?.cancel();
     _doneSub?.cancel();
@@ -296,12 +300,6 @@ class _ReaderPageState extends State<ReaderPage> {
 
   // ---------------- creazione del testo ----------------
 
-  Future<void> _keepScreen(bool on) async {
-    try {
-      await Recorder.channel.invokeMethod('keepScreenOn', {'on': on});
-    } catch (_) {}
-  }
-
   String get _jobKey => 'readerJob|${widget.path?.split('/').last}';
 
   Future<void> _markStage(String? stage) async {
@@ -328,56 +326,56 @@ class _ReaderPageState extends State<ReaderPage> {
         '${tr('Di solito succede quando lo schermo si spegne e il telefono chiude l\'app. Ora lo schermo resta acceso da solo: riprova e non uscire dall\'app finché non ha finito.')}');
   }
 
+  TextJob? _job;
+
+  /// Si collega al lavoro in corso per questo file (anche se era partito prima).
+  void _attach(TextJob j) {
+    _job?.removeListener(_onJob);
+    _job = j;
+    j.addListener(_onJob);
+    _onJob();
+  }
+
+  Future<void> _onJob() async {
+    final j = _job;
+    if (j == null || !mounted) return;
+    if (j.running) {
+      setState(() {
+        _working = true;
+        _stage = j.stage;
+        _progress = j.progress;
+      });
+      return;
+    }
+    // finito: rilegge il testo salvato
+    j.removeListener(_onJob);
+    _job = null;
+    final t = await loadTranscript(widget.path!);
+    if (!mounted) return;
+    setState(() {
+      _working = false;
+      if (t != null) {
+        _t = t;
+        _resetKeys();
+      }
+    });
+    if (j.error != null) {
+      final e = j.error!;
+      j.error = null;
+      _showError(e);
+    } else if (j.warning != null) {
+      _snack(j.warning!);
+      j.warning = null;
+    }
+  }
+
   Future<void> _create() async {
     final path = widget.path;
     if (path == null) return;
     await _pause();
-    await _keepScreen(true);
-    String lastStage = '';
-    setState(() {
-      _working = true;
-      _stage = tr('Preparo…');
-      _progress = null;
-    });
-    try {
-      final startMs = _startMin * 60000;
-      final endMs = _lenMin == 0 ? 0 : startMs + _lenMin * 60000;
-      final t = await _whisper.transcribe(path,
-          quality: _quality,
-          lang: _lang,
-          startMs: startMs,
-          endMs: endMs,
-          onStage: (s, p) {
-            final base = s.replaceAll(RegExp(r'\s*\d+%$'), '');
-            if (base != lastStage) {
-              lastStage = base;
-              _markStage(base);
-            }
-            if (mounted) {
-              setState(() {
-                _stage = tr(s);
-                _progress = p;
-              });
-            }
-          });
-      if (t.lines.isEmpty) {
-        _showError(tr('Non ho sentito parlato in questo pezzo. Prova un altro minuto.'));
-        return;
-      }
-      if (t.lang.isEmpty) t.lang = await OnlineTranslator.detect(t.lines.map((l) => l.text).take(10).join(' ')) ?? 'es';
-      await saveTranscript(path, t);
-      setState(() {
-        _t = t;
-        _resetKeys();
-      });
-      await _translate();
-    } catch (e) {
-      _showError('$e');
-    } finally {
-      await _markStage(null);
-      await _keepScreen(false);
-      if (mounted) setState(() => _working = false);
-    }
+    final startMs = _startMin * 60000;
+    final endMs = _lenMin == 0 ? 0 : startMs + _lenMin * 60000;
+    _attach(TextJob.create(path, quality: _quality, lang: _lang, startMs: startMs, endMs: endMs));
   }
 
   void _showError(String e) {
@@ -395,35 +393,12 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   Future<void> _translate() async {
-    final t = _t;
     final path = widget.path;
-    if (t == null || path == null) return;
-    final dst = _dst;
-    setState(() {
-      _working = true;
-      _progress = 0;
-      _stage = '${tr('Traduco in')} ${_nameOf(dst)}…';
-    });
-    await _keepScreen(true);
-    try {
-      final out = await OnlineTranslator.lines(t.lines.map((l) => l.text).toList(), t.lang, dst,
-          progress: (n) {
-        if (mounted) {
-          setState(() {
-            _stage = '${tr('Traduco in')} ${_nameOf(dst)}… $n/${t.lines.length}';
-            _progress = n / t.lines.length;
-          });
-        }
-      });
-      t.translations[dst] = out;
-      await saveTranscript(path, t);
-    } catch (_) {
-      _snack(tr('Traduzione non riuscita: serve internet. Riprova con ⋮ → Traduci di nuovo.'));
-    } finally {
-      await _keepScreen(false);
-      if (mounted) setState(() => _working = false);
-    }
+    if (path == null) return;
+    await _pause();
+    _attach(TextJob.translate(path));
   }
+
 
   Future<void> _editTranslation(int i) async {
     final t = _t;
@@ -491,7 +466,7 @@ class _ReaderPageState extends State<ReaderPage> {
     final t = _t;
     final hasText = t != null && t.lines.isNotEmpty;
     return PopScope(
-      canPop: !_working,
+      canPop: true,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _snack(tr('Aspetta che finisca, poi potrai uscire.'));
       },
@@ -558,7 +533,7 @@ class _ReaderPageState extends State<ReaderPage> {
               const SizedBox(height: 16),
               LinearProgressIndicator(value: _progress, minHeight: 6, borderRadius: BorderRadius.circular(3)),
               const SizedBox(height: 16),
-              Text(tr('Non uscire dall\'app finché non ha finito: lo schermo resta acceso da solo.'),
+              Text(tr('Puoi uscire da questa pagina: il lavoro continua. Resta però dentro l\'app (lo schermo resta acceso da solo).'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ],
