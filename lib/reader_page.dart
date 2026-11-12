@@ -726,6 +726,22 @@ class _ReaderPageState extends State<ReaderPage> {
         ),
       );
 
+  Widget _langBox(String label, String flag, String name) {
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      decoration: BoxDecoration(color: s.surfaceContainerHigh, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, color: s.onSurfaceVariant)),
+          Text(flag, style: const TextStyle(fontSize: 30)),
+          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
   Widget _setupView() {
     final s = Theme.of(context).colorScheme;
     final totalMin = widget.duration == null ? 240 : (widget.duration!.inSeconds / 60).ceil();
@@ -745,7 +761,7 @@ class _ReaderPageState extends State<ReaderPage> {
             textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         Text(
-            tr('Il telefono scrive quello che dice la radio e lo traduce in arabo. Poi ascolti la voce della radio e il colore segue le parole.'),
+            '${tr('Il telefono scrive quello che dice la radio e lo traduce in')} ${_nameOf(_target)}. ${tr('Poi ascolti la voce della radio e il colore segue le parole.')}',
             textAlign: TextAlign.center,
             style: TextStyle(color: s.onSurfaceVariant)),
         const SizedBox(height: 18),
@@ -757,10 +773,25 @@ class _ReaderPageState extends State<ReaderPage> {
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         ),
         const SizedBox(height: 8),
-        Text('${_flagOf(_lang == 'auto' ? 'es' : _lang)} ${_lang == 'auto' ? tr('lingua automatica') : _nameOf(_lang)} · $partText · ${tr(_quality.label)}',
+        const SizedBox(height: 4),
+        // le due lingue, ben visibili: da quale a quale
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _langBox(tr('Radio'), _lang == 'auto' ? '🌐' : _flagOf(_lang),
+                _lang == 'auto' ? tr('Automatica') : _nameOf(_lang)),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 10),
+              child: Icon(Icons.arrow_forward_rounded, size: 28, color: accent),
+            ),
+            _langBox(tr('Traduzione'), _flagOf(_target), _nameOf(_target)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text('$partText · ${tr(_quality.label)}',
             textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: s.onSurfaceVariant)),
         const SizedBox(height: 22),
-        Text(tr('Lingua della radio'), style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text('1. ${tr('Lingua della radio (quella che si sente)')}', style: const TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
@@ -780,7 +811,7 @@ class _ReaderPageState extends State<ReaderPage> {
           ],
         ),
         const SizedBox(height: 20),
-        Text(tr('Traduci in'), style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text('2. ${tr('Traduci in (la lingua che vuoi leggere)')}', style: const TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
