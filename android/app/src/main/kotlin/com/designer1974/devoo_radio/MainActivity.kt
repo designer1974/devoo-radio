@@ -13,6 +13,38 @@ import io.flutter.plugin.common.MethodChannel
 // Activity compatibile con la riproduzione in background (notifica con i controlli)
 class MainActivity : AudioServiceActivity() {
     private var channel: MethodChannel? = null
+    private var pickResult: MethodChannel.Result? = null
+
+    /** Copia nella cache i file audio scelti e restituisce i percorsi (nome originale). */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 4711) return
+        val res = pickResult ?: return
+        pickResult = null
+        if (resultCode != RESULT_OK || data == null) { res.success(emptyList<String>()); return }
+        val uris = mutableListOf<android.net.Uri>()
+        data.clipData?.let { c -> for (i in 0 until c.itemCount) uris.add(c.getItemAt(i).uri) }
+        if (uris.isEmpty()) data.data?.let { uris.add(it) }
+        Thread {
+            val out = mutableListOf<String>()
+            val dir = java.io.File(cacheDir, "import").apply { deleteRecursively(); mkdirs() }
+            for (u in uris) {
+                try {
+                    var name = "Registrazione.m4a"
+                    contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) c.getString(0)?.let { name = it }
+                    }
+                    name = name.replace('/', ' ')
+                    var f = java.io.File(dir, name)
+                    var k = 2
+                    while (f.exists()) f = java.io.File(dir, "${k++}_$name")
+                    contentResolver.openInputStream(u)?.use { inp -> f.outputStream().use { inp.copyTo(it, 1 shl 16) } }
+                    out.add(f.absolutePath)
+                } catch (_: Exception) {}
+            }
+            runOnUiThread { res.success(out) }
+        }.start()
+    }
 
     // Il telefono si sta spegnendo: la registrazione si chiude subito (al riavvio si recupera)
     private val shutdown = object : BroadcastReceiver() {
@@ -215,6 +247,19 @@ class MainActivity : AudioServiceActivity() {
                             call.argument<Boolean>("he")!!,
                             report,
                         )
+                    }
+                    "pickAudio" -> {
+                        pickResult?.success(emptyList<String>())
+                        pickResult = result
+                        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "audio/*"
+                            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                        }
+                        try { startActivityForResult(i, 4711) } catch (e: Exception) {
+                            pickResult = null
+                            result.error("PICK", e.message, null)
+                        }
                     }
                     "toWav16k" -> Thread {
                         try {

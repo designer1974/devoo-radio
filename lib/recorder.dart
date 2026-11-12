@@ -61,6 +61,7 @@ class RecSettings {
 /// Ponte verso il codice Android (Kotlin).
 class Recorder {
   static const _ch = MethodChannel('rr/recorder');
+  static MethodChannel get channel => _ch;
   static void Function(double)? _onProgress;
   static bool _ready = false;
 

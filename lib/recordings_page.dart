@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart' hide Text;
-import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'editor.dart';
@@ -73,24 +72,23 @@ class _RecordingsPageState extends State<RecordingsPage> {
 
   /// Rimette nell'app registrazioni salvate altrove (es. prima di reinstallare).
   Future<void> _import() async {
-    FilePickerResult? res;
+    List<String> files;
     try {
-      res = await FilePicker.pickFiles(type: FileType.audio, allowMultiple: true);
+      files = ((await Recorder.channel.invokeMethod<List>('pickAudio')) ?? const []).cast<String>();
     } catch (_) {
       return _snack('Impossibile aprire i file');
     }
-    if (res == null || res.files.isEmpty) return;
+    if (files.isEmpty) return;
     var n = 0;
-    for (final f in res.files) {
-      final path = f.path;
-      if (path == null) continue;
-      final name = f.name;
+    for (final path in files) {
+      final name = path.split('/').last;
       final dot = name.lastIndexOf('.');
       final base = dot > 0 ? name.substring(0, dot) : name;
       final ext = dot > 0 ? name.substring(dot + 1).toLowerCase() : 'm4a';
       try {
         final dst = await Recordings.i.uniquePath(base, ext);
         await File(path).copy(dst);
+        await File(path).delete();
         n++;
       } catch (_) {}
     }

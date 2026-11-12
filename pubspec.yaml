@@ -24,7 +24,6 @@ dependencies:
   google_mobile_ads: any
   whisper_ggml:
     path: packages/whisper_ggml
-  file_picker: any
 
 dev_dependencies:
   flutter_test:
