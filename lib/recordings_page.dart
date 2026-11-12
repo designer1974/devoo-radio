@@ -75,7 +75,7 @@ class _RecordingsPageState extends State<RecordingsPage> {
   Future<void> _import() async {
     FilePickerResult? res;
     try {
-      res = await FilePicker.platform.pickFiles(type: FileType.audio, allowMultiple: true);
+      res = await FilePicker.pickFiles(type: FileType.audio, allowMultiple: true);
     } catch (_) {
       return _snack('Impossibile aprire i file');
     }
