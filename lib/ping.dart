@@ -18,7 +18,7 @@ class Ping {
   Ping._();
 
   static const url = 'https://devoo.it/api/app-ping.php';
-  static const every = Duration(hours: 20);
+  static const every = Duration(hours: 6);
   static bool _running = false;
 
   static void start() {
@@ -74,6 +74,9 @@ class Ping {
       if (j is Map && j['revoked'] == true && sentKey.isNotEmpty && p.savedKey == sentKey) {
         await p.deactivate();
       }
+      // licenza riaccesa dal pannello o appena creata: arriva da sola (l'app controlla la firma)
+      final k = j is Map ? j['key'] : null;
+      if (k is String && k.isNotEmpty && k != p.savedKey) await p.activate(k);
     } catch (_) {
       // senza internet: si riprova più tardi
     } finally {
